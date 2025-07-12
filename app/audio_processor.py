@@ -1,180 +1,173 @@
+"""
+Audio processing module with advanced preprocessing capabilities.
+Handles audio normalization, denoising, and feature extraction.
+"""
+
 import os
+from functools import lru_cache
+from typing import Tuple, Optional, Callable
+from pathlib import Path
+
 import librosa
 import soundfile as sf
 import numpy as np
-from typing import Tuple, Optional
 import noisereduce as nr
 from pydub import AudioSegment
+
 from app.config import settings
+from app.constants import (
+    AudioConfig, ErrorMessages, SuccessMessages, 
+    ValidationConfig, AudioData, ProcessingResult
+)
 
 
 class AudioProcessor:
-    """Handles audio preprocessing including normalization and denoising"""
+    """Advanced audio preprocessing with configurable pipeline."""
     
-    def __init__(self):
-        self.target_sample_rate = settings.TARGET_SAMPLE_RATE
-        self.target_channels = settings.TARGET_CHANNELS
-    
-    def load_audio(self, file_path: str) -> Tuple[np.ndarray, int]:
+    def __init__(self, target_sample_rate: Optional[int] = None, 
+                 target_channels: Optional[int] = None):
         """
-        Load audio file and return audio data and sample rate
+        Initialize audio processor with configuration.
         
         Args:
-            file_path: Path to the audio file
+            target_sample_rate: Target sample rate (default from settings)
+            target_channels: Target channels (default from settings)
+        """
+        self.target_sample_rate = target_sample_rate or settings.target_sample_rate
+        self.target_channels = target_channels or settings.target_channels
+        
+        # Processing pipeline configuration
+        self._pipeline_steps = {
+            'normalize_sample_rate': self._normalize_sample_rate,
+            'denoise': self._denoise_audio,
+            'trim_silence': self._trim_silence,
+            'normalize_amplitude': self._normalize_amplitude
+        }
+    
+    @lru_cache(maxsize=128)
+    def _get_audio_info(self, file_path: str) -> Tuple[float, int]:
+        """Get cached audio information."""
+        return librosa.get_duration(filename=file_path), librosa.get_samplerate(file_path)
+    
+    def load_audio(self, file_path: str) -> Tuple[AudioData, int]:
+        """
+        Load audio file with error handling and validation.
+        
+        Args:
+            file_path: Path to audio file
             
         Returns:
             Tuple of (audio_data, sample_rate)
+            
+        Raises:
+            ValueError: If file cannot be loaded or is invalid
         """
         try:
+            # Validate file exists
+            if not Path(file_path).exists():
+                raise FileNotFoundError(f"Audio file not found: {file_path}")
+            
             # Load audio using librosa
             audio, sample_rate = librosa.load(file_path, sr=None, mono=False)
             
-            # Convert to mono if stereo
-            if len(audio.shape) > 1:
-                audio = np.mean(audio, axis=0)
+            # Convert to mono if stereo using list comprehension
+            audio = np.mean(audio, axis=0) if len(audio.shape) > 1 else audio
+            
+            # Validate audio data
+            if not ValidationConfig.is_valid_audio_duration(len(audio) / sample_rate):
+                raise ValueError("Audio duration is outside valid range")
             
             return audio, sample_rate
+            
         except Exception as e:
-            raise ValueError(f"Error loading audio file {file_path}: {str(e)}")
+            raise ValueError(f"{ErrorMessages.FILE_TOO_LARGE.format(file_path)}: {str(e)}")
     
-    def normalize_sample_rate(self, audio: np.ndarray, current_sample_rate: int) -> np.ndarray:
-        """
-        Resample audio to target sample rate
-        
-        Args:
-            audio: Audio data
-            current_sample_rate: Current sample rate
-            
-        Returns:
-            Resampled audio data
-        """
-        if current_sample_rate != self.target_sample_rate:
-            audio = librosa.resample(
-                audio, 
-                orig_sr=current_sample_rate, 
-                target_sr=self.target_sample_rate
-            )
-        return audio
+    def _normalize_sample_rate(self, audio: AudioData, current_sample_rate: int) -> AudioData:
+        """Resample audio to target sample rate using lambda for efficiency."""
+        return (librosa.resample(audio, orig_sr=current_sample_rate, 
+                                target_sr=self.target_sample_rate)
+                if current_sample_rate != self.target_sample_rate else audio)
     
-    def denoise_audio(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
-        """
-        Remove noise from audio using spectral gating
-        
-        Args:
-            audio: Audio data
-            sample_rate: Sample rate
-            
-        Returns:
-            Denoised audio data
-        """
+    def _denoise_audio(self, audio: AudioData, sample_rate: int) -> AudioData:
+        """Remove noise using spectral gating with configurable parameters."""
         try:
-            # Apply noise reduction
-            denoised_audio = nr.reduce_noise(
+            return nr.reduce_noise(
                 y=audio, 
                 sr=sample_rate,
-                stationary=False,
-                prop_decrease=0.75
+                stationary=AudioConfig.NOISE_REDUCE_STATIONARY,
+                prop_decrease=AudioConfig.NOISE_REDUCE_PROP_DECAY
             )
-            return denoised_audio
         except Exception as e:
             print(f"Warning: Noise reduction failed: {str(e)}")
             return audio
     
-    def trim_silence(self, audio: np.ndarray, threshold_db: float = -40.0) -> np.ndarray:
-        """
-        Trim silence from beginning and end of audio
-        
-        Args:
-            audio: Audio data
-            threshold_db: Threshold in dB for silence detection
-            
-        Returns:
-            Trimmed audio data
-        """
+    def _trim_silence(self, audio: AudioData, threshold_db: float = AudioConfig.SILENCE_THRESHOLD) -> AudioData:
+        """Trim silence using configurable threshold."""
         try:
-            # Convert threshold to amplitude
-            threshold = 10 ** (threshold_db / 20)
-            
-            # Trim silence
-            trimmed_audio, _ = librosa.effects.trim(audio, top_db=abs(threshold_db))
-            return trimmed_audio
+            return librosa.effects.trim(audio, top_db=abs(threshold_db))[0]
         except Exception as e:
             print(f"Warning: Silence trimming failed: {str(e)}")
             return audio
     
-    def normalize_amplitude(self, audio: np.ndarray, target_db: float = -20.0) -> np.ndarray:
-        """
-        Normalize audio amplitude to target dB level
-        
-        Args:
-            audio: Audio data
-            target_db: Target dB level
-            
-        Returns:
-            Normalized audio data
-        """
+    def _normalize_amplitude(self, audio: AudioData, target_db: float = -20.0) -> AudioData:
+        """Normalize amplitude using vectorized operations."""
         try:
-            # Calculate current RMS
             rms = np.sqrt(np.mean(audio**2))
             if rms > 0:
-                # Calculate target RMS
                 target_rms = 10 ** (target_db / 20)
-                # Normalize
-                normalized_audio = audio * (target_rms / rms)
-                return normalized_audio
+                return audio * (target_rms / rms)
             return audio
         except Exception as e:
             print(f"Warning: Amplitude normalization failed: {str(e)}")
             return audio
     
-    def process_audio(self, file_path: str, denoise: bool = True, 
-                     trim_silence: bool = True, normalize_amplitude: bool = True) -> Tuple[np.ndarray, int]:
+    def process_audio(self, file_path: str, 
+                     processing_steps: Optional[dict] = None) -> Tuple[AudioData, int]:
         """
-        Complete audio preprocessing pipeline
+        Complete audio preprocessing pipeline with configurable steps.
         
         Args:
-            file_path: Path to the audio file
-            denoise: Whether to apply denoising
-            trim_silence: Whether to trim silence
-            normalize_amplitude: Whether to normalize amplitude
+            file_path: Path to audio file
+            processing_steps: Dict of step_name: enabled for each processing step
             
         Returns:
             Tuple of (processed_audio, sample_rate)
         """
         print(f"Processing audio file: {file_path}")
         
+        # Default processing steps
+        steps = processing_steps or {
+            'normalize_sample_rate': True,
+            'denoise': True,
+            'trim_silence': True,
+            'normalize_amplitude': True
+        }
+        
         # Load audio
         audio, sample_rate = self.load_audio(file_path)
-        print(f"Loaded audio: {len(audio)/sample_rate:.2f}s, {sample_rate}Hz")
+        duration = len(audio) / sample_rate
+        print(f"Loaded audio: {duration:.2f}s, {sample_rate}Hz")
         
-        # Normalize sample rate
-        audio = self.normalize_sample_rate(audio, sample_rate)
-        sample_rate = self.target_sample_rate
-        print(f"Normalized sample rate to: {sample_rate}Hz")
+        # Apply processing pipeline using list comprehension
+        processing_results = [
+            (step_name, step_func(audio, sample_rate))
+            for step_name, step_func in self._pipeline_steps.items()
+            if steps.get(step_name, False)
+        ]
         
-        # Denoise
-        if denoise:
-            audio = self.denoise_audio(audio, sample_rate)
-            print("Applied denoising")
-        
-        # Trim silence
-        if trim_silence:
-            original_length = len(audio)
-            audio = self.trim_silence(audio)
-            new_length = len(audio)
-            print(f"Trimmed silence: {original_length/sample_rate:.2f}s -> {new_length/sample_rate:.2f}s")
-        
-        # Normalize amplitude
-        if normalize_amplitude:
-            audio = self.normalize_amplitude(audio)
-            print("Normalized amplitude")
+        # Update audio after each step
+        for step_name, processed_audio in processing_results:
+            audio = processed_audio
+            if step_name == 'normalize_sample_rate':
+                sample_rate = self.target_sample_rate
+            print(f"Applied {step_name}")
         
         return audio, sample_rate
     
-    def save_processed_audio(self, audio: np.ndarray, sample_rate: int, 
+    def save_processed_audio(self, audio: AudioData, sample_rate: int, 
                            output_path: str) -> str:
         """
-        Save processed audio to file
+        Save processed audio with automatic directory creation.
         
         Args:
             audio: Audio data
@@ -185,25 +178,143 @@ class AudioProcessor:
             Path to saved file
         """
         try:
-            # Ensure output directory exists
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            # Create output directory using pathlib
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             
             # Save audio
             sf.write(output_path, audio, sample_rate)
-            print(f"Saved processed audio to: {output_path}")
+            print(f"{SuccessMessages.FILE_UPLOADED}: {output_path}")
             return output_path
+            
         except Exception as e:
             raise ValueError(f"Error saving audio file: {str(e)}")
     
-    def get_audio_duration(self, audio: np.ndarray, sample_rate: int) -> float:
+    def get_audio_duration(self, audio: AudioData, sample_rate: int) -> float:
+        """Calculate audio duration using vectorized operations."""
+        return len(audio) / sample_rate
+    
+    def extract_audio_features(self, audio: AudioData, sample_rate: int) -> dict:
         """
-        Calculate audio duration in seconds
+        Extract comprehensive audio features using vectorized operations.
         
         Args:
             audio: Audio data
             sample_rate: Sample rate
             
         Returns:
-            Duration in seconds
+            Dictionary of audio features
         """
-        return len(audio) / sample_rate 
+        features = {}
+        
+        # MFCC features using list comprehension
+        mfcc = librosa.feature.mfcc(y=audio, sr=sample_rate, 
+                                   n_mfcc=AudioConfig.MFCC_N_COEFFICIENTS)
+        features.update({
+            'mfcc_mean': np.mean(mfcc, axis=1).tolist(),
+            'mfcc_std': np.std(mfcc, axis=1).tolist(),
+            'mfcc_delta_mean': np.mean(librosa.feature.delta(mfcc), axis=1).tolist(),
+            'mfcc_delta_std': np.std(librosa.feature.delta(mfcc), axis=1).tolist()
+        })
+        
+        # Spectral features using dict comprehension
+        spectral_features = {
+            'spectral_centroid': librosa.feature.spectral_centroid(y=audio, sr=sample_rate),
+            'spectral_rolloff': librosa.feature.spectral_rolloff(y=audio, sr=sample_rate),
+            'spectral_bandwidth': librosa.feature.spectral_bandwidth(y=audio, sr=sample_rate),
+            'zero_crossing_rate': librosa.feature.zero_crossing_rate(audio)
+        }
+        
+        features.update({
+            name: np.mean(feature).item() 
+            for name, feature in spectral_features.items()
+        })
+        
+        # Chroma features
+        chroma = librosa.feature.chroma_stft(y=audio, sr=sample_rate)
+        features.update({
+            'chroma_mean': np.mean(chroma, axis=1).tolist(),
+            'chroma_std': np.std(chroma, axis=1).tolist()
+        })
+        
+        # Harmonic features
+        harmonic, percussive = librosa.effects.hpss(audio)
+        features.update({
+            'harmonic_ratio': np.sum(harmonic**2) / np.sum(audio**2),
+            'percussive_ratio': np.sum(percussive**2) / np.sum(audio**2)
+        })
+        
+        return features
+    
+    def batch_process(self, file_paths: list, 
+                     processing_steps: Optional[dict] = None) -> list:
+        """
+        Process multiple audio files in batch.
+        
+        Args:
+            file_paths: List of audio file paths
+            processing_steps: Processing configuration
+            
+        Returns:
+            List of processing results
+        """
+        return [
+            {
+                'file_path': file_path,
+                'result': self.process_audio(file_path, processing_steps)
+            }
+            for file_path in file_paths
+        ]
+    
+    @staticmethod
+    def validate_audio_file(file_path: str) -> bool:
+        """
+        Validate audio file format and size.
+        
+        Args:
+            file_path: Path to audio file
+            
+        Returns:
+            True if valid, False otherwise
+        """
+        try:
+            file_path = Path(file_path)
+            
+            # Check file exists
+            if not file_path.exists():
+                return False
+            
+            # Check file size
+            if file_path.stat().st_size > AudioConfig.MAX_FILE_SIZE:
+                return False
+            
+            # Check file format
+            if file_path.suffix.lower() not in AudioConfig.ALLOWED_FORMATS:
+                return False
+            
+            return True
+            
+        except Exception:
+            return False
+    
+    def get_processing_stats(self, audio: AudioData, sample_rate: int) -> dict:
+        """
+        Get comprehensive audio processing statistics.
+        
+        Args:
+            audio: Audio data
+            sample_rate: Sample rate
+            
+        Returns:
+            Dictionary of audio statistics
+        """
+        duration = self.get_audio_duration(audio, sample_rate)
+        
+        return {
+            'duration': duration,
+            'sample_rate': sample_rate,
+            'samples': len(audio),
+            'rms': np.sqrt(np.mean(audio**2)),
+            'peak': np.max(np.abs(audio)),
+            'dynamic_range': np.max(audio) - np.min(audio),
+            'zero_crossings': np.sum(np.diff(np.sign(audio)) != 0)
+        } 
