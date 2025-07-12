@@ -124,7 +124,7 @@ install_dependencies() {
     print_status "Installing Python dependencies..."
     
     pip install --upgrade pip
-    pip install -r requirements.txt
+    uv sync
     
     print_success "Dependencies installed"
 }

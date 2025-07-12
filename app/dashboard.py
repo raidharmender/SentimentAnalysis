@@ -52,21 +52,56 @@ def upload_and_analyze_page():
         st.audio(uploaded_file)
         
         # Analysis options
-        col1, col2 = st.columns(2)
+        st.subheader("Analysis Options")
+        
+        col1, col2, col3 = st.columns(3)
+        
         with col1:
             save_processed = st.checkbox("Save processed audio", value=True)
         
         with col2:
+            # Language selection
+            language_options = {
+                "Auto-detect (Improved)": "auto",
+                "English": "en",
+                "Welsh": "cy",
+                "Irish": "ga",
+                "Scottish Gaelic": "gd",
+                "French": "fr",
+                "German": "de",
+                "Spanish": "es",
+                "Italian": "it",
+                "Portuguese": "pt",
+                "Dutch": "nl",
+                "Russian": "ru",
+                "Chinese": "zh",
+                "Japanese": "ja",
+                "Korean": "ko"
+            }
+            
+            selected_language = st.selectbox(
+                "Language",
+                options=list(language_options.keys()),
+                index=0,  # Default to auto-detect
+                help="Select the language of the audio. 'Auto-detect' uses improved detection for English accents."
+            )
+            
+            language_code = language_options[selected_language]
+        
+        with col3:
             if st.button("Analyze Sentiment", type="primary"):
-                analyze_audio(uploaded_file, save_processed)
+                analyze_audio(uploaded_file, save_processed, language_code)
 
-def analyze_audio(uploaded_file, save_processed):
+def analyze_audio(uploaded_file, save_processed, language_code="auto"):
     """Analyze uploaded audio file"""
     try:
         with st.spinner("Analyzing audio..."):
             # Prepare file for upload
             files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
-            params = {"save_processed_audio": save_processed}
+            params = {
+                "save_processed_audio": save_processed,
+                "language": language_code
+            }
             
             # Make API request
             response = requests.post(
@@ -89,12 +124,36 @@ def display_analysis_results(result):
     st.success("Analysis completed successfully!")
     
     # Basic info
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Duration", f"{result['duration']:.2f}s")
     with col2:
         st.metric("Processing Time", f"{result['processing_time']:.2f}s")
     with col3:
+        # Language info
+        language_name = {
+            "en": "English",
+            "cy": "Welsh", 
+            "ga": "Irish",
+            "gd": "Scottish Gaelic",
+            "fr": "French",
+            "de": "German",
+            "es": "Spanish",
+            "it": "Italian",
+            "pt": "Portuguese",
+            "nl": "Dutch",
+            "ru": "Russian",
+            "zh": "Chinese",
+            "ja": "Japanese",
+            "ko": "Korean"
+        }.get(result['transcription']['language'], result['transcription']['language'])
+        
+        st.metric(
+            "Detected Language",
+            language_name,
+            delta=f"Confidence: {result['transcription']['confidence']:.1%}"
+        )
+    with col4:
         sentiment_color = {
             "positive": "green",
             "negative": "red",

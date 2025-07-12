@@ -220,7 +220,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Error running examples: {str(e)}")
         print("Make sure you have installed all dependencies:")
-        print("pip install -r requirements.txt")
+        print("uv sync")
 
 
 if __name__ == "__main__":

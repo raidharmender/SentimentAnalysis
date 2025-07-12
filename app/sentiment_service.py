@@ -24,7 +24,7 @@ class SentimentAnalysisService:
         os.makedirs(settings.PROCESSED_DIR, exist_ok=True)
     
     def analyze_audio_file(self, file_path: str, db: Session, 
-                          save_processed_audio: bool = True) -> Dict:
+                          save_processed_audio: bool = True, language: str = None) -> Dict:
         """
         Complete pipeline for audio sentiment analysis
         
@@ -62,7 +62,7 @@ class SentimentAnalysisService:
             # Step 2: Transcription
             print("Step 2: Speech-to-Text Transcription")
             transcription_result = self.transcription_service.transcribe_audio_data(
-                audio_data, sample_rate
+                audio_data, sample_rate, language
             )
             
             # Step 3: Sentiment Analysis

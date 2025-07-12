@@ -1,8 +1,11 @@
+import os
+import certifi
 import whisper
 import torch
 import numpy as np
 from typing import Dict, List, Tuple, Optional
 import time
+import warnings
 from app.config import settings
 
 
@@ -24,8 +27,25 @@ class TranscriptionService:
         """Load Whisper model"""
         print(f"Loading Whisper model: {self.model_name}")
         try:
-            self.model = whisper.load_model(self.model_name)
-            print(f"Successfully loaded Whisper model: {self.model_name}")
+            os.environ['SSL_CERT_FILE'] = certifi.where()
+            
+            # Check if CUDA is available
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"Using device: {device}")
+            
+            # Suppress FP16 warnings on CPU
+            if device == "cpu":
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
+                    # Load model
+                    self.model = whisper.load_model(self.model_name, device=device)
+                    # Force FP32 precision on CPU to avoid FP16 errors
+                    self.model = self.model.float()  # Convert to FP32
+            else:
+                # Load model for GPU
+                self.model = whisper.load_model(self.model_name, device=device)
+            
+            print(f"Successfully loaded Whisper model: {self.model_name} on {device}")
         except Exception as e:
             raise RuntimeError(f"Failed to load Whisper model {self.model_name}: {str(e)}")
     
@@ -47,12 +67,22 @@ class TranscriptionService:
         start_time = time.time()
         
         try:
-            # Transcribe audio
-            result = self.model.transcribe(
-                audio_path,
-                language=language,
-                verbose=True
-            )
+            # Transcribe audio with warning suppression
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if device == "cpu":
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
+                    result = self.model.transcribe(
+                        audio_path,
+                        language=language,
+                        verbose=True
+                    )
+            else:
+                result = self.model.transcribe(
+                    audio_path,
+                    language=language,
+                    verbose=True
+                )
             
             transcription_time = time.time() - start_time
             print(f"Transcription completed in {transcription_time:.2f}s")
@@ -84,7 +114,7 @@ class TranscriptionService:
         Args:
             audio_data: Audio data as numpy array
             sample_rate: Sample rate of audio
-            language: Language code (optional)
+            language: Language code (optional, 'auto' for improved detection)
             
         Returns:
             Dictionary containing transcription results
@@ -100,19 +130,37 @@ class TranscriptionService:
             if audio_data.dtype != np.float32:
                 audio_data = audio_data.astype(np.float32)
             
-            # Transcribe audio data
-            result = self.model.transcribe(
-                audio_data,
-                language=language,
-                verbose=True
-            )
+            # Handle language detection
+            if language == "auto" or language is None:
+                # Use improved language detection for English accents
+                language_detected = self._improved_language_detection(audio_data)
+                print(f"Detected language: {language_detected}")
+            else:
+                language_detected = language
+            
+            # Transcribe audio data with warning suppression
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            if device == "cpu":
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
+                    result = self.model.transcribe(
+                        audio_data,
+                        language=language_detected,
+                        verbose=True
+                    )
+            else:
+                result = self.model.transcribe(
+                    audio_data,
+                    language=language_detected,
+                    verbose=True
+                )
             
             transcription_time = time.time() - start_time
             print(f"Transcription completed in {transcription_time:.2f}s")
             
             # Extract results
             transcript = result.get("text", "").strip()
-            language_detected = result.get("language", language)
+            final_language = result.get("language", language_detected)
             segments = result.get("segments", [])
             
             # Calculate confidence score
@@ -120,7 +168,7 @@ class TranscriptionService:
             
             return {
                 "transcript": transcript,
-                "language": language_detected,
+                "language": final_language,
                 "confidence": confidence,
                 "segments": segments,
                 "processing_time": transcription_time
@@ -193,6 +241,53 @@ class TranscriptionService:
             
         except Exception as e:
             raise RuntimeError(f"Language detection failed: {str(e)}")
+    
+    def _improved_language_detection(self, audio_data: np.ndarray) -> str:
+        """
+        Improved language detection with better handling of English accents
+        
+        Args:
+            audio_data: Audio data as numpy array
+            
+        Returns:
+            Language code
+        """
+        try:
+            # First, try standard Whisper language detection
+            audio = whisper.pad_or_trim(audio_data)
+            mel = whisper.log_mel_spectrogram(audio).to(self.model.device)
+            _, probs = self.model.detect_language(mel)
+            
+            # Get top 3 language probabilities
+            top_languages = sorted(probs.items(), key=lambda x: x[1], reverse=True)[:3]
+            detected_lang, confidence = top_languages[0]
+            
+            print(f"Language detection probabilities: {top_languages}")
+            
+            # English accent handling logic
+            if detected_lang == "cy":  # Welsh detected
+                # Check if it might be English with Welsh accent
+                if confidence < 0.8:  # Lower confidence suggests possible misclassification
+                    # Check second and third most likely languages
+                    for lang, prob in top_languages[1:]:
+                        if lang == "en" and prob > 0.3:  # English has significant probability
+                            print(f"Correcting Welsh detection to English (confidence: {confidence:.3f} -> English: {prob:.3f})")
+                            return "en"
+            
+            # Handle other potential English accent misclassifications
+            english_accent_codes = ["cy", "ga", "gd", "en"]  # Welsh, Irish, Scottish, English
+            if detected_lang in ["cy", "ga", "gd"] and confidence < 0.85:
+                # Check if English is in top results
+                for lang, prob in top_languages:
+                    if lang == "en" and prob > 0.25:
+                        print(f"Correcting {detected_lang} detection to English (confidence: {confidence:.3f} -> English: {prob:.3f})")
+                        return "en"
+            
+            return detected_lang
+            
+        except Exception as e:
+            print(f"Warning: Language detection failed, defaulting to English: {str(e)}")
+            return "en"
     
     def get_model_info(self) -> Dict:
         """
