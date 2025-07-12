@@ -131,6 +131,7 @@ dmypy.json
 # Sentiment Analysis System specific
 uploads/
 processed/
+incoming/
 data/
 logs/
 *.db
