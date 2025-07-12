@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 from app.audio_processor import AudioProcessor
 from app.transcription import TranscriptionService
-from app.sentiment_analyzer import SentimentAnalyzer
+from app.sentiment_analyzer import SentimentAnalyzerMultiTool
 from app.models import AudioAnalysis, SpeakerSegment
 from app.config import settings
 
@@ -17,7 +17,7 @@ class SentimentAnalysisService:
         """Initialize the sentiment analysis service"""
         self.audio_processor = AudioProcessor()
         self.transcription_service = TranscriptionService()
-        self.sentiment_analyzer = SentimentAnalyzer()
+        self.sentiment_analyzer = SentimentAnalyzerMultiTool()
         
         # Ensure directories exist
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -67,8 +67,10 @@ class SentimentAnalysisService:
             
             # Step 3: Sentiment Analysis
             print("Step 3: Sentiment Analysis")
-            sentiment_result = self.sentiment_analyzer.analyze_sentiment(
-                transcription_result["transcript"]
+            # Use detected language for sentiment analysis
+            lang_code = transcription_result.get("language", "en")
+            sentiment_result = self.sentiment_analyzer.analyze(
+                transcription_result["transcript"], lang_code
             )
             
             # Step 4: Segment Analysis (if segments available)

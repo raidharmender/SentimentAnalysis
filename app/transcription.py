@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple, Optional
 import time
 import warnings
 from app.config import settings
+from app.enhanced_language_detector import EnhancedLanguageDetector
 
 
 class TranscriptionService:
@@ -22,6 +23,9 @@ class TranscriptionService:
         self.model_name = model_name or settings.WHISPER_MODEL
         self.model = None
         self._load_model()
+        
+        # Initialize enhanced language detector
+        self.language_detector = EnhancedLanguageDetector(self.model_name)
     
     def _load_model(self):
         """Load Whisper model"""
@@ -55,7 +59,7 @@ class TranscriptionService:
         
         Args:
             audio_path: Path to audio file
-            language: Language code (optional, will auto-detect if None)
+            language: Language code (optional, 'auto' for improved detection, None for default)
             
         Returns:
             Dictionary containing transcription results
@@ -67,6 +71,15 @@ class TranscriptionService:
         start_time = time.time()
         
         try:
+            # Handle language detection for "auto" parameter
+            if language == "auto":
+                # Use enhanced language detection
+                detection_result = self.language_detector.detect_language_enhanced(audio_path)
+                language_detected = detection_result["language"]
+                print(f"Enhanced auto-detected language: {language_detected} (confidence: {detection_result['confidence']:.3f})")
+            else:
+                language_detected = language
+            
             # Transcribe audio with warning suppression
             device = "cuda" if torch.cuda.is_available() else "cpu"
             if device == "cpu":
@@ -74,13 +87,13 @@ class TranscriptionService:
                     warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
                     result = self.model.transcribe(
                         audio_path,
-                        language=language,
+                        language=language_detected,
                         verbose=True
                     )
             else:
                 result = self.model.transcribe(
                     audio_path,
-                    language=language,
+                    language=language_detected,
                     verbose=True
                 )
             

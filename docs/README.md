@@ -6,13 +6,65 @@ A comprehensive Python 3.12 system for analyzing customer sentiment and emotions
 
 - **Audio Processing**: Normalize sample rate (16kHz mono), denoise, and trim silence
 - **Speech-to-Text**: Powered by OpenAI Whisper for accurate transcription
-- **🌍 Enhanced Language Detection**: Improved detection for English accents with manual language selection
+- **🌍 Enhanced Language Detection**: Improved detection for English accents, Mandarin, Malay, and more
 - **🎭 Emotion Detection**: Multi-modal emotion recognition (7 categories) using audio features and text analysis
-- **Sentiment Analysis**: Multi-model approach using Hugging Face transformers, VADER, and TextBlob
+- **Sentiment Analysis**: Multi-model approach using Hugging Face transformers, VADER, TextBlob, cnsenti, cntext, and malaya
 - **REST API**: FastAPI-based API for easy integration
 - **Web Dashboard**: Streamlit dashboard for visualization and analysis
 - **Database Storage**: SQLite/PostgreSQL support for storing results
 - **Segment Analysis**: Time-based sentiment analysis for detailed insights
+
+## 🌐 Multi-Language Sentiment Analysis
+
+The system supports sentiment analysis in multiple languages, automatically selecting the best tool for each language:
+
+| Language  | Tool(s) Used         | Details/Output                  |
+|-----------|----------------------|---------------------------------|
+| English   | VADER                | Compound/pos/neg/neu scores     |
+| Mandarin  | cnsenti, cntext      | Sentiment & emotion breakdown   |
+| Malay     | malaya               | HuggingFace-based sentiment     |
+| Other     | HuggingFace/TextBlob | Fallback, if supported          |
+
+### How It Works
+- **Language Detection**: The system detects the language of the audio/text (auto or user-specified).
+- **Tool Selection**: The backend selects the appropriate sentiment tool based on the detected language code (`en`, `zh`, `ms`, etc).
+- **Dashboard/API**: The tool used and detailed results are shown in the dashboard and returned by the API.
+
+### Example Code
+
+```python
+from app.sentiment_analyzer import SentimentAnalyzerMultiTool
+analyzer = SentimentAnalyzerMultiTool()
+
+# Mandarin
+print(analyzer.analyze("我好开心啊，非常非常非常高兴！今天我得了一百分，我很兴奋开心，愉快，开心", 'zh'))
+# Malay
+print(analyzer.analyze("Saya sangat gembira hari ini!", 'ms'))
+# English
+print(analyzer.analyze("I'm absolutely chuffed to bits!", 'en'))
+```
+
+### Sample Output
+
+- **Mandarin**:
+  ```json
+  {
+    "tool": "cnsenti+cntext",
+    "cnsenti_sentiment": {"pos": 3, "neg": 0},
+    "cnsenti_emotion": {"joy": 4, "anger": 0, ...},
+    "cntext": {"positive": 0.98, "negative": 0.01}
+  }
+  ```
+- **Malay**:
+  ```json
+  {"tool": "malaya", "sentiment": "positive"}
+  ```
+- **English**:
+  ```json
+  {"tool": "VADER", "sentiment": {"compound": 0.85, "pos": 0.7, "neu": 0.3, "neg": 0.0}}
+  ```
+
+---
 
 ## 📋 System Architecture
 
@@ -34,6 +86,7 @@ Audio File Upload → Preprocessing → Transcription → Emotion Detection → 
 ### Prerequisites
 - Python 3.12+
 - FFmpeg (for audio processing)
+- For Mandarin/Malay support: `pip install cnsenti cntext malaya` (see their docs for extra dependencies)
 
 ### ⚠️ PyTorch Installation Required
 
@@ -53,18 +106,15 @@ Audio File Upload → Preprocessing → Transcription → Emotion Detection → 
 git clone <repository-url>
 cd SentimentAnalysis_1
 ```
-
 2. **Create virtual environment**:
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
-
 3. **Install dependencies**:
 ```bash
 uv sync
 ```
-
 4. **Install FFmpeg** (if not already installed):
    - **macOS**: `brew install ffmpeg`
    - **Ubuntu**: `sudo apt install ffmpeg`
@@ -239,19 +289,11 @@ SentimentAnalysis_1/
 ├── uploads/                   # Uploaded audio files
 ├── processed/                 # Processed audio files
 ├── docs/                      # Documentation
-│   ├── README.md              # Main documentation
-│   ├── Audio_File_Storage.md  # Audio storage documentation
-│   ├── API_Documentation.md   # API reference
-│   └── SystemArchitecture.md  # System architecture
+│   └── README.md              # Main documentation
 ├── main.py                    # Main entry point
 ├── pyproject.toml            # uv project configuration
 └── README.md
 ```
-
-## 📁 Audio File Storage
-
-For detailed information about audio file storage paths, processing flow, and management, see:
-- **[Audio File Storage Documentation](Audio_File_Storage.md)** - Complete guide to file storage and management
 
 ## 🔍 Technical Details
 
@@ -272,6 +314,8 @@ For detailed information about audio file storage paths, processing flow, and ma
 - **Hugging Face Transformers**: State-of-the-art transformer models
 - **VADER**: Rule-based sentiment analysis
 - **TextBlob**: Machine learning-based sentiment analysis
+- **cnsenti, cntext**: Mandarin sentiment and emotion analysis
+- **malaya**: Malay sentiment analysis
 - **Ensemble Aggregation**: Combine results from multiple models
 - **Confidence Scoring**: Based on model agreement
 
@@ -336,37 +380,5 @@ For support and questions:
 - [ ] Integration with CRM systems
 - [ ] Mobile app support
 - [ ] Cloud deployment templates
-
-## 🌐 API Documentation
-
-### Interactive Documentation
-The API includes comprehensive interactive documentation powered by FastAPI and Swagger:
-
-- **Swagger UI**: http://localhost:8000/docs - Interactive API explorer with try-it-out functionality
-- **ReDoc**: http://localhost:8000/redoc - Alternative documentation view
-- **OpenAPI JSON**: http://localhost:8000/openapi.json - Raw OpenAPI specification
-
-### API Features
-- **Organized Endpoints**: Grouped by functionality (health, analysis, results, statistics)
-- **Detailed Descriptions**: Each endpoint includes comprehensive documentation
-- **Request/Response Examples**: Pre-filled examples for easy testing
-- **Parameter Validation**: Automatic validation with helpful error messages
-- **Schema Documentation**: Complete data model documentation
-
-### Quick API Test
-```bash
-# Health check
-curl http://localhost:8000/health
-
-# System status
-curl http://localhost:8000/status
-
-# Text sentiment analysis
-curl -X POST "http://localhost:8000/analyze/text" \
-  -H "Content-Type: application/json" \
-  -d '{"text": "I love this product!"}'
-```
-
-For detailed API documentation, see [API_Documentation.md](API_Documentation.md) and [curl_examples.md](curl_examples.md).
 
 --- 

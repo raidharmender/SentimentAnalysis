@@ -145,7 +145,8 @@ def display_analysis_results(result):
             "ru": "Russian",
             "zh": "Chinese",
             "ja": "Japanese",
-            "ko": "Korean"
+            "ko": "Korean",
+            "ms": "Malay"
         }.get(result['transcription']['language'], result['transcription']['language'])
         
         st.metric(
@@ -208,12 +209,26 @@ def display_analysis_results(result):
         # Confidence and details
         st.metric("Confidence", f"{result['sentiment']['confidence']:.2%}")
         
-        # Model details
-        if result['sentiment']['details']:
-            st.write("**Model Details:**")
-            for model, details in result['sentiment']['details'].items():
-                if details:
-                    st.write(f"- {model.title()}: {details}")
+        # Show tool used
+        tool = result['sentiment']['details'].get('tool') if isinstance(result['sentiment']['details'], dict) else None
+        if tool:
+            st.write(f"**Sentiment Tool Used:** `{tool}`")
+        # Show detailed output for Mandarin, Malay, English
+        details = result['sentiment']['details']
+        if details:
+            if tool == 'cnsenti+cntext':
+                st.write("**CNSenti Sentiment:**", details.get('cnsenti_sentiment'))
+                st.write("**CNSenti Emotion:**", details.get('cnsenti_emotion'))
+                st.write("**CnText:**", details.get('cntext'))
+            elif tool == 'malaya':
+                st.write("**Malaya Sentiment:**", details.get('sentiment'))
+            elif tool == 'VADER':
+                st.write("**VADER Scores:**", details.get('sentiment'))
+            else:
+                # Fallback: show all details
+                st.write("**Model Details:**")
+                for k, v in details.items():
+                    st.write(f"- {k}: {v}")
     
     # Segment analysis
     if result.get('segments'):

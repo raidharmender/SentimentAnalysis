@@ -6,6 +6,17 @@ import time
 from textblob import TextBlob
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from app.config import settings
+import os
+import re
+from typing import Dict, Any
+
+# English
+from nltk.sentiment import SentimentIntensityAnalyzer
+# Mandarin
+from cnsenti import Sentiment as CNSentiSentiment, Emotion as CNSentiEmotion
+from cntext import CnText
+# Malay
+import malaya
 
 
 class SentimentAnalyzer:
@@ -304,3 +315,57 @@ class SentimentAnalyzer:
             "textblob_available": True,
             "device": "cuda" if torch.cuda.is_available() else "cpu"
         } 
+
+
+class SentimentAnalyzerMultiTool:
+    def __init__(self):
+        # English
+        self.sia = SentimentIntensityAnalyzer()
+        # Mandarin
+        self.cnsenti_sentiment = CNSentiSentiment()
+        self.cnsenti_emotion = CNSentiEmotion()
+        self.cntext = CnText()
+        # Malay
+        self.malaya_model = malaya.sentiment.huggingface()
+    
+    def analyze(self, text: str, language: str) -> Dict[str, Any]:
+        if language == 'en':
+            return self.analyze_english(text)
+        elif language == 'zh':
+            return self.analyze_mandarin(text)
+        elif language == 'ms':
+            return self.analyze_malay(text)
+        else:
+            return {'error': f'Unsupported language: {language}'}
+    
+    def analyze_english(self, text: str) -> Dict[str, Any]:
+        score = self.sia.polarity_scores(text)
+        return {'tool': 'VADER', 'sentiment': score}
+    
+    def analyze_mandarin(self, text: str) -> Dict[str, Any]:
+        senti_result = self.cnsenti_sentiment.sentiment_count(text)
+        emotion_result = self.cnsenti_emotion.emotion_count(text)
+        cntext_result = self.cntext.sentiment(text)
+        return {
+            'tool': 'cnsenti+cntext',
+            'cnsenti_sentiment': senti_result,
+            'cnsenti_emotion': emotion_result,
+            'cntext': cntext_result
+        }
+    
+    def analyze_malay(self, text: str) -> Dict[str, Any]:
+        result = self.malaya_model.predict([text])
+        return {'tool': 'malaya', 'sentiment': result[0]}
+
+# Example usage
+def _demo():
+    analyzer = SentimentAnalyzerMultiTool()
+    print('Mandarin:')
+    print(analyzer.analyze("我好开心啊，非常非常非常高兴！今天我得了一百分，我很兴奋开心，愉快，开心", 'zh'))
+    print('Malay:')
+    print(analyzer.analyze("Saya sangat gembira hari ini!", 'ms'))
+    print('English:')
+    print(analyzer.analyze("I'm absolutely chuffed to bits!", 'en'))
+
+if __name__ == '__main__':
+    _demo() 
