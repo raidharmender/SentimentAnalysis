@@ -31,7 +31,7 @@ class TranscriptionService:
         Initialize transcription service with configurable model.
         
         Args:
-            model_name: Whisper model to use (tiny, base, small, medium, large)
+            model_name: Whisper model to use (tiny, base, small, medium)
         """
         self.model_name = model_name or settings.get_whisper_model()
         self.model = None
@@ -206,13 +206,13 @@ class TranscriptionService:
             key: result.get(key, default_value)
             for key, default_value in [
                 ("text", ""),
-                ("language", language),
                 ("segments", [])
             ]
         }
         
         transcript = extracted_data["text"].strip()
-        final_language = extracted_data["language"]
+        # Use the specified language instead of Whisper's detection
+        final_language = language
         segments = extracted_data["segments"]
         
         # Calculate confidence using vectorized operations

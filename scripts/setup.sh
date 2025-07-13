@@ -198,7 +198,7 @@ SENTIMENT_MODEL=cardiffnlp/twitter-roberta-base-sentiment-latest
 
 # File Upload
 MAX_FILE_SIZE=52428800
-ALLOWED_AUDIO_FORMATS=.wav,.mp3,.flac,.m4a
+ALLOWED_AUDIO_FORMATS=.wav,.mp3,.flac,.m4a,.opus
 
 # Storage
 UPLOAD_DIR=uploads

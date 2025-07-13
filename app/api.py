@@ -23,7 +23,7 @@ A comprehensive API for analyzing customer sentiment from audio files using Mach
 
 ## Features
 
-- **Audio Processing**: Upload and analyze WAV, MP3, FLAC, and M4A files
+- **Audio Processing**: Upload and analyze WAV, MP3, FLAC, M4A, and OPUS files
 - **Speech-to-Text**: Powered by OpenAI Whisper for accurate transcription
 - **Sentiment Analysis**: Multi-model approach using Hugging Face transformers, VADER, and TextBlob
 - **Real-time Analysis**: Get results immediately after processing
@@ -223,7 +223,7 @@ async def analyze_audio(
     """
     Analyze sentiment from uploaded audio file
     
-    Supports WAV, MP3, FLAC, and M4A formats
+    Supports WAV, MP3, FLAC, M4A, and OPUS formats
     """
     start_time = time.time()
     logger.info(f"Starting audio analysis for file: {file.filename}")

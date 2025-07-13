@@ -21,8 +21,8 @@ class AudioConfig:
 # Whisper Model Constants
 class WhisperConfig:
     """Whisper transcription configuration."""
-    DEFAULT_MODEL = "base"
-    AVAILABLE_MODELS = {"tiny", "base", "small", "medium", "large"}
+    DEFAULT_MODEL = "small"
+    AVAILABLE_MODELS = {"tiny", "base", "small", "medium"}
     LANGUAGE_AUTO = "auto"
     TASK_TRANSCRIBE = "transcribe"
     TASK_TRANSLATE = "translate"

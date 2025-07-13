@@ -53,8 +53,8 @@ def upload_and_analyze_page():
     # File upload
     uploaded_file = st.file_uploader(
         "Choose an audio file",
-        type=['wav', 'mp3', 'flac', 'm4a'],
-        help="Supported formats: WAV, MP3, FLAC, M4A"
+        type=['wav', 'mp3', 'flac', 'm4a', 'opus'],
+        help="Supported formats: WAV, MP3, FLAC, M4A, OPUS"
     )
     
     if uploaded_file is not None:

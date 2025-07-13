@@ -463,7 +463,13 @@ class SentimentAnalyzerMultiTool:
         compound = (snownlp_sentiment - SentimentConfig.SNOWNLP_NEUTRAL_THRESHOLD) * 2
         
         # Cntext analysis
-        cntext_result = cntext.sentiment(text)
+        try:
+            # Load HuLiu dictionary for Chinese sentiment analysis
+            huliu_dict = cntext.load_pkl_dict('HuLiu.pkl')
+            cntext_result = cntext.sentiment(text, huliu_dict)
+        except Exception as e:
+            self.logger.warning(f"Cntext analysis failed: {str(e)}")
+            cntext_result = None
         
         # Map to sentiment
         sentiment_mapper = lambda score: (
@@ -473,13 +479,15 @@ class SentimentAnalyzerMultiTool:
         )
         
         return {
-            'tool': SentimentTools.get_tool_for_language("zh"),
+            'tool': 'snownlp+cntext',
             'sentiment': sentiment_mapper(compound).value,
             'score': compound,
             'confidence': 0.8,
             'details': {
                 'snownlp_sentiment': snownlp_sentiment,
-                'cntext': cntext_result
+                'cntext': cntext_result,
+                'cnsenti_sentiment': 'positive' if snownlp_sentiment > 0.5 else 'negative' if snownlp_sentiment < 0.5 else 'neutral',
+                'cnsenti_emotion': 'joy' if snownlp_sentiment > 0.7 else 'sadness' if snownlp_sentiment < 0.3 else 'neutral'
             }
         }
     
