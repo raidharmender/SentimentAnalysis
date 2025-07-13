@@ -7,12 +7,19 @@ import requests
 import json
 from typing import Dict, List
 import os
+import logging
+
+from app.logging_config import get_dashboard_logger
 
 # Configuration
 API_BASE_URL = "http://localhost:8000"
 UPLOAD_DIR = "uploads"
 
+# Initialize logger
+logger = get_dashboard_logger()
+
 def main():
+    logger.info("Starting Streamlit dashboard")
     st.set_page_config(
         page_title="Sentiment Analysis Dashboard",
         page_icon="🎤",
@@ -28,6 +35,8 @@ def main():
         "Choose a page",
         ["Upload & Analyze", "View Results", "Statistics", "System Status"]
     )
+    
+    logger.info(f"User navigated to page: {page}")
     
     if page == "Upload & Analyze":
         upload_and_analyze_page()
@@ -94,6 +103,9 @@ def upload_and_analyze_page():
 
 def analyze_audio(uploaded_file, save_processed, language_code="auto"):
     """Analyze uploaded audio file"""
+    logger.info(f"Starting audio analysis via dashboard for file: {uploaded_file.name}")
+    logger.info(f"Analysis parameters: save_processed={save_processed}, language={language_code}")
+    
     try:
         with st.spinner("Analyzing audio..."):
             # Prepare file for upload
@@ -104,6 +116,7 @@ def analyze_audio(uploaded_file, save_processed, language_code="auto"):
             }
             
             # Make API request
+            logger.info(f"Making API request to: {API_BASE_URL}/analyze")
             response = requests.post(
                 f"{API_BASE_URL}/analyze",
                 files=files,
@@ -112,11 +125,15 @@ def analyze_audio(uploaded_file, save_processed, language_code="auto"):
             
             if response.status_code == 200:
                 result = response.json()
+                logger.info(f"Audio analysis completed successfully for file: {uploaded_file.name}")
+                logger.info(f"Analysis ID: {result.get('analysis_id')}, Sentiment: {result.get('sentiment', {}).get('overall_sentiment')}")
                 display_analysis_results(result)
             else:
+                logger.error(f"API analysis failed for file {uploaded_file.name}: {response.status_code} - {response.text}")
                 st.error(f"Analysis failed: {response.text}")
                 
     except Exception as e:
+        logger.error(f"Error during dashboard audio analysis for file {uploaded_file.name}: {str(e)}", exc_info=True)
         st.error(f"Error during analysis: {str(e)}")
 
 def display_analysis_results(result):

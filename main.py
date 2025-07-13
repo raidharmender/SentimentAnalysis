@@ -14,13 +14,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
 from app.api import app
 from app.database import create_tables
 from app.config import settings
+from app.logging_config import setup_logging_from_config, get_api_logger, get_dashboard_logger
 
 
 def run_api_server(host: str = "0.0.0.0", port: int = 8000, reload: bool = True):
     """Run the FastAPI server"""
-    print(f"Starting Sentiment Analysis API server on {host}:{port}")
-    print(f"API Documentation: http://{host}:{port}/docs")
-    print(f"Health Check: http://{host}:{port}/health")
+    logger = get_api_logger()
+    logger.info(f"Starting Sentiment Analysis API server on {host}:{port}")
+    logger.info(f"API Documentation: http://{host}:{port}/docs")
+    logger.info(f"Health Check: http://{host}:{port}/health")
     
     uvicorn.run(
         "app.api:app",
@@ -36,8 +38,9 @@ def run_dashboard(port: int = 8501):
     import subprocess
     import sys
     
-    print(f"Starting Streamlit dashboard on port {port}")
-    print(f"Dashboard URL: http://localhost:{port}")
+    logger = get_dashboard_logger()
+    logger.info(f"Starting Streamlit dashboard on port {port}")
+    logger.info(f"Dashboard URL: http://localhost:{port}")
     
     # Run streamlit
     subprocess.run([
@@ -80,10 +83,14 @@ def main():
     
     args = parser.parse_args()
     
+    # Initialize logging
+    setup_logging_from_config()
+    
     # Create database tables
-    print("Initializing database...")
+    logger = get_api_logger()
+    logger.info("Initializing database...")
     create_tables()
-    print("Database initialized successfully!")
+    logger.info("Database initialized successfully!")
     
     if args.mode == "api":
         run_api_server(args.host, args.api_port, not args.no_reload)

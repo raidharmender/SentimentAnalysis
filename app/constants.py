@@ -12,7 +12,7 @@ class AudioConfig:
     TARGET_SAMPLE_RATE = 16000
     TARGET_CHANNELS = 1
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-    ALLOWED_FORMATS = {".wav", ".mp3", ".flac", ".m4a"}
+    ALLOWED_FORMATS = {".wav", ".mp3", ".flac", ".m4a", ".opus"}
     SILENCE_THRESHOLD = -40  # dB
     MIN_SILENCE_DURATION = 0.5  # seconds
     NOISE_REDUCE_STATIONARY = True
@@ -30,8 +30,8 @@ class WhisperConfig:
 # Sentiment Analysis Constants
 class SentimentConfig:
     """Sentiment analysis thresholds and configurations."""
-    POSITIVE_THRESHOLD = 0.05
-    NEGATIVE_THRESHOLD = -0.05
+    POSITIVE_THRESHOLD = 0.3  # Very conservative threshold for positive classification
+    NEGATIVE_THRESHOLD = -0.3  # Very conservative threshold for negative classification
     NEUTRAL_THRESHOLD = 0.1
     CONFIDENCE_HIGH = 0.9
     CONFIDENCE_MEDIUM = 0.6

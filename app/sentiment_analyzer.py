@@ -401,9 +401,12 @@ class SentimentAnalyzerMultiTool:
         return handler(text)
     
     def _analyze_english(self, text: str) -> SentimentResult:
-        """Analyze English text using VADER."""
+        """Analyze English text using VADER with context-aware adjustments."""
         scores = self.vader_analyzer.polarity_scores(text)
         compound = scores.get("compound", 0.0)
+        
+        # Context-aware adjustments for customer service calls
+        adjusted_compound = self._adjust_for_customer_service_context(text, compound)
         
         # Map to sentiment using lambda
         sentiment_mapper = lambda score: (
@@ -414,11 +417,41 @@ class SentimentAnalyzerMultiTool:
         
         return {
             'tool': SentimentTools.get_tool_for_language("en"),
-            'sentiment': sentiment_mapper(compound).value,
-            'score': compound,
+            'sentiment': sentiment_mapper(adjusted_compound).value,
+            'score': adjusted_compound,
             'confidence': 0.8,
-            'details': scores
+            'details': {**scores, 'original_compound': compound, 'adjusted_compound': adjusted_compound}
         }
+    
+    def _adjust_for_customer_service_context(self, text: str, compound: float) -> float:
+        """Adjust sentiment score based on customer service context."""
+        text_lower = text.lower()
+        
+        # Customer service context indicators
+        cs_indicators = [
+            "customer care", "customer service", "may i speak with", "calling to check",
+            "follow-up", "how is your experience", "thank you for your feedback"
+        ]
+        
+        # Check if this is a customer service call
+        is_customer_service = any(indicator in text_lower for indicator in cs_indicators)
+        
+        if is_customer_service:
+            # For customer service calls, be more conservative with positive sentiment
+            # Reduce the compound score slightly to avoid over-classification
+            if compound > 0.5:
+                # High positive scores get reduced more
+                adjusted = compound * 0.7
+            elif compound > 0.2:
+                # Moderate positive scores get reduced slightly
+                adjusted = compound * 0.85
+            else:
+                # Low scores remain mostly unchanged
+                adjusted = compound
+        else:
+            adjusted = compound
+        
+        return adjusted
     
     def _analyze_mandarin(self, text: str) -> SentimentResult:
         """Analyze Mandarin text using snownlp and cntext."""
@@ -493,12 +526,26 @@ class SentimentAnalyzerMultiTool:
         if not segments:
             return self._get_empty_summary()
         
-        # Extract sentiment data using list comprehensions
-        sentiment_data = [
-            (seg.get("sentiment", {}).get("compound", 0.0), seg.get("sentiment", {}))
-            for seg in segments
-            if "sentiment" in seg
-        ]
+        # Extract sentiment data from segments that have been analyzed
+        sentiment_data = []
+        for seg in segments:
+            if isinstance(seg, dict):
+                # Check if segment has sentiment analysis results
+                if "sentiment" in seg and isinstance(seg["sentiment"], dict):
+                    # Segment already has sentiment analysis
+                    sentiment_data.append((
+                        seg["sentiment"].get("score", 0.0),
+                        seg["sentiment"].get("sentiment", "neutral")
+                    ))
+                elif "text" in seg and seg["text"].strip():
+                    # Analyze text for sentiment
+                    text = seg["text"].strip()
+                    if text:
+                        sentiment_result = self._analyze_english(text)
+                        sentiment_data.append((
+                            sentiment_result.get("score", 0.0),
+                            sentiment_result.get("sentiment", "neutral")
+                        ))
         
         if not sentiment_data:
             return self._get_empty_summary()
@@ -513,17 +560,16 @@ class SentimentAnalyzerMultiTool:
             else SentimentLabel.NEUTRAL
         )
         
+        # Count sentiment distribution
+        sentiment_distribution = {label.value: 0 for label in SentimentLabel}
+        for sentiment in sentiments:
+            if sentiment in sentiment_distribution:
+                sentiment_distribution[sentiment] += 1
+        
         return {
             "overall_sentiment": sentiment_mapper(avg_score).value,
             "average_score": avg_score,
-                         "sentiment_distribution": {
-                 label.value: sum(1 for s in sentiments if (
-                     s.get("compound", 0) > 0.05 if label == SentimentLabel.POSITIVE
-                     else s.get("compound", 0) < -0.05 if label == SentimentLabel.NEGATIVE
-                     else -0.05 <= s.get("compound", 0) <= 0.05
-                 ))
-                 for label in SentimentLabel
-             },
+            "sentiment_distribution": sentiment_distribution,
             "total_segments": len(segments),
             "score_range": {"min": min(scores), "max": max(scores)}
         }

@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 from typing import List, Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Query, Path
 from fastapi.responses import JSONResponse
@@ -10,6 +11,7 @@ import uvicorn
 from app.database import get_db, create_tables
 from app.sentiment_service import SentimentAnalysisService
 from app.config import settings
+from app.logging_config import get_api_logger, get_sentiment_logger, get_audio_logger
 
 # Create FastAPI app with enhanced OpenAPI documentation
 app = FastAPI(
@@ -71,8 +73,9 @@ Be mindful of processing time for large audio files. The system processes files 
     ]
 )
 
-# Initialize service
+# Initialize service and logger
 sentiment_service = SentimentAnalysisService()
+logger = get_api_logger()
 
 # Pydantic models for API responses
 class AnalysisResponse(BaseModel):
@@ -189,8 +192,10 @@ class SystemStatusResponse(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize database tables on startup"""
+    logger.info("Starting API server initialization")
     create_tables()
-    print("Database tables created successfully")
+    logger.info("Database tables created successfully")
+    logger.info("API server initialization completed")
 
 
 @app.get("/", response_model=dict, tags=["health"])
@@ -207,9 +212,12 @@ async def root():
 
 @app.post("/analyze", response_model=AnalysisResponse, tags=["analysis"])
 async def analyze_audio(
-    file: UploadFile = File(..., description="Audio file to analyze (WAV, MP3, FLAC, M4A)"),
+    file: UploadFile = File(..., description="Audio file to analyze (WAV, MP3, FLAC, M4A, OPUS)"),
     save_processed_audio: bool = Query(True, description="Save processed audio file"),
-    language: Optional[str] = Query(None, description="Language code (e.g., 'en', 'cy', 'auto'). If 'auto', will attempt to detect language with improved English accent handling"),
+    language: Optional[str] = Query(
+        None, 
+        description="Language code for transcription and sentiment analysis. Options: 'en' (English), 'zh' (Chinese), 'ms' (Malay), 'auto' (auto-detect). If not specified, will auto-detect language."
+    ),
     db: Session = Depends(get_db)
 ):
     """
@@ -217,37 +225,52 @@ async def analyze_audio(
     
     Supports WAV, MP3, FLAC, and M4A formats
     """
+    start_time = time.time()
+    logger.info(f"Starting audio analysis for file: {file.filename}")
+    logger.info(f"File size: {file.size} bytes, Language: {language}, Save processed: {save_processed_audio}")
+    
     # Validate file format
     file_extension = os.path.splitext(file.filename)[1].lower()
-    if file_extension not in settings.ALLOWED_AUDIO_FORMATS:
+    if file_extension not in settings.allowed_audio_formats:
+        logger.warning(f"Unsupported file format: {file_extension} for file: {file.filename}")
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file format. Allowed formats: {settings.ALLOWED_AUDIO_FORMATS}"
+            detail=f"Unsupported file format. Allowed formats: {settings.allowed_audio_formats}"
         )
     
     # Validate file size
-    if file.size and file.size > settings.MAX_FILE_SIZE:
+    if file.size and file.size > settings.max_file_size:
+        logger.warning(f"File too large: {file.size} bytes for file: {file.filename}")
         raise HTTPException(
             status_code=400,
-            detail=f"File too large. Maximum size: {settings.MAX_FILE_SIZE / (1024*1024)}MB"
+            detail=f"File too large. Maximum size: {settings.max_file_size / (1024*1024)}MB"
         )
     
+    upload_path = None
     try:
         # Save uploaded file
         upload_path = os.path.join(settings.upload_dir, file.filename)
+        logger.info(f"Saving uploaded file to: {upload_path}")
         with open(upload_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
         # Analyze audio
+        logger.info(f"Starting sentiment analysis for file: {file.filename}")
         result = sentiment_service.analyze_audio_file(
             upload_path, db, save_processed_audio, language
         )
         
+        processing_time = time.time() - start_time
+        logger.info(f"Audio analysis completed successfully for file: {file.filename}")
+        logger.info(f"Analysis ID: {result.get('analysis_id')}, Processing time: {processing_time:.2f}s")
+        
         return result
         
     except Exception as e:
+        logger.error(f"Error during audio analysis for file {file.filename}: {str(e)}", exc_info=True)
         # Clean up uploaded file on error
-        if os.path.exists(upload_path):
+        if upload_path and os.path.exists(upload_path):
+            logger.info(f"Cleaning up uploaded file: {upload_path}")
             os.remove(upload_path)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -259,10 +282,13 @@ async def get_analyses(
     db: Session = Depends(get_db)
 ):
     """Get list of all analyses with pagination"""
+    logger.info(f"Retrieving analyses with limit={limit}, offset={offset}")
     try:
         analyses = sentiment_service.get_all_analyses(db, limit, offset)
-        total = db.query(sentiment_service.models.AudioAnalysis).count()
+        from app.models import AudioAnalysis
+        total = db.query(AudioAnalysis).count()
         
+        logger.info(f"Retrieved {len(analyses)} analyses out of {total} total")
         return {
             "analyses": analyses,
             "total": total,
@@ -270,6 +296,7 @@ async def get_analyses(
             "offset": offset
         }
     except Exception as e:
+        logger.error(f"Error retrieving analyses: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -279,15 +306,19 @@ async def get_analysis_by_id(
     db: Session = Depends(get_db)
 ):
     """Get detailed analysis results by ID"""
+    logger.info(f"Retrieving analysis with ID: {analysis_id}")
     try:
         analysis = sentiment_service.get_analysis_by_id(db, analysis_id)
         if not analysis:
+            logger.warning(f"Analysis not found with ID: {analysis_id}")
             raise HTTPException(status_code=404, detail="Analysis not found")
         
+        logger.info(f"Successfully retrieved analysis with ID: {analysis_id}")
         return analysis
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error retrieving analysis {analysis_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -317,55 +348,74 @@ async def delete_analysis(
     db: Session = Depends(get_db)
 ):
     """Delete analysis by ID"""
+    logger.info(f"Deleting analysis with ID: {analysis_id}")
     try:
         from app.models import AudioAnalysis, SpeakerSegment
         
         # Delete segments first
-        db.query(SpeakerSegment).filter(
+        segments_deleted = db.query(SpeakerSegment).filter(
             SpeakerSegment.audio_analysis_id == analysis_id
         ).delete()
+        logger.info(f"Deleted {segments_deleted} speaker segments for analysis {analysis_id}")
         
         # Delete main analysis
         analysis = db.query(AudioAnalysis).filter(AudioAnalysis.id == analysis_id).first()
         if not analysis:
+            logger.warning(f"Analysis not found for deletion with ID: {analysis_id}")
             raise HTTPException(status_code=404, detail="Analysis not found")
         
         db.delete(analysis)
         db.commit()
         
+        logger.info(f"Successfully deleted analysis with ID: {analysis_id}")
         return {"message": "Analysis deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error deleting analysis {analysis_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/analyze/text", tags=["analysis"])
-async def analyze_text_sentiment(text_data: dict):
+async def analyze_text_sentiment(
+    text: str = Query(..., description="Text to analyze for sentiment"),
+    language: Optional[str] = Query(
+        "en", 
+        description="Language code for sentiment analysis. Options: 'en' (English), 'zh' (Chinese), 'ms' (Malay). Default: 'en'"
+    )
+):
     """
-    Analyze sentiment from text input
+    Analyze sentiment from text input with language-specific analysis.
     
-    Expected format: {"text": "your text here"}
+    This endpoint supports multiple languages and uses appropriate sentiment analysis tools
+    for each language (VADER for English, SnowNLP+Cntext for Chinese, Malaya for Malay).
     """
     try:
-        text = text_data.get("text", "")
         if not text:
             raise HTTPException(status_code=400, detail="Text is required")
         
-        # Analyze sentiment
-        result = sentiment_service.sentiment_analyzer.analyze_sentiment(text)
+        # Use language-specific sentiment analysis
+        if language in ["zh", "ms"]:
+            # Use multi-tool analyzer for non-English languages
+            result = sentiment_service.sentiment_analyzer.analyze(text, language)
+        else:
+            # Use standard analyzer for English
+            result = sentiment_service.sentiment_analyzer.analyze(text, "en")
         
         return {
             "text": text,
+            "language": language,
             "sentiment": {
-                "overall_sentiment": result["sentiment"],
-                "score": result["score"],
-                "confidence": result["confidence"]
+                "overall_sentiment": result.get("sentiment", result.get("overall_sentiment", "neutral")),
+                "score": result.get("score", 0.0),
+                "confidence": result.get("confidence", 0.0)
             },
-            "details": result["details"]
+            "details": result.get("details", {}),
+            "tool_used": result.get("tool", "standard")
         }
         
     except Exception as e:
+        logger.error(f"Text sentiment analysis failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -526,6 +576,64 @@ async def get_supported_languages():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "sentiment-analysis"}
+
+
+@app.post("/shutdown", tags=["health"])
+async def graceful_shutdown():
+    """
+    Gracefully shutdown the API server.
+    
+    This endpoint allows for controlled shutdown of the server.
+    Use this instead of SIGTERM/SIGINT for clean shutdown.
+    """
+    import asyncio
+    import signal
+    
+    logger.info("Graceful shutdown initiated via API endpoint")
+    
+    # Schedule shutdown after response is sent
+    asyncio.create_task(shutdown_server())
+    
+    return {
+        "status": "shutdown_initiated",
+        "message": "Server shutdown initiated. Please wait for completion.",
+        "timestamp": time.time()
+    }
+
+
+async def shutdown_server():
+    """Perform graceful shutdown operations."""
+    import asyncio
+    
+    logger.info("Starting graceful shutdown process...")
+    
+    # Wait a moment for the response to be sent
+    await asyncio.sleep(1)
+    
+    # Perform cleanup operations
+    logger.info("Cleaning up resources...")
+    
+    # Close database connections
+    try:
+        from app.database import engine
+        engine.dispose()
+        logger.info("Database connections closed")
+    except Exception as e:
+        logger.error(f"Error closing database connections: {e}")
+    
+    # Close any open file handles
+    try:
+        import gc
+        gc.collect()
+        logger.info("Memory cleanup completed")
+    except Exception as e:
+        logger.error(f"Error during memory cleanup: {e}")
+    
+    logger.info("Graceful shutdown completed")
+    
+    # Exit the process
+    import os
+    os._exit(0)
 
 
 if __name__ == "__main__":

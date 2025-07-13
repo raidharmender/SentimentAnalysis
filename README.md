@@ -2,6 +2,18 @@
 
 A comprehensive audio sentiment analysis system that processes audio files, performs speech-to-text transcription, and analyzes sentiment using multiple languages and tools.
 
+---
+
+## 🚀 What's New
+
+- **Stricter Sentiment Thresholds**: The system now uses more conservative thresholds for positive/negative sentiment. See `app/constants.py` for `POSITIVE_THRESHOLD` and `NEGATIVE_THRESHOLD` (default: ±0.3).
+- **Context-Aware Sentiment**: For customer service calls (detected by keywords), positive scores are reduced to avoid over-classification. See `app/sentiment_analyzer.py` for details.
+- **Language Support in API**: Both `/analyze` and `/analyze/text` endpoints accept an optional `language` parameter (`en`, `zh`, `ms`, `auto`).
+- **Swagger/OpenAPI Documentation**: Interactive API docs at [http://localhost:8000/docs](http://localhost:8000/docs) and [http://localhost:8000/redoc](http://localhost:8000/redoc).
+- **.env File Format**: Environment variable files must NOT have inline comments. Each line should be `KEY=VALUE` only.
+
+---
+
 ## Features
 
 - **Multi-language Support**: English, Mandarin, and Malay sentiment analysis
@@ -12,526 +24,204 @@ A comprehensive audio sentiment analysis system that processes audio files, perf
 - **Interactive Dashboard**: Streamlit-based visualization and analysis
 - **Multi-tool Sentiment Analysis**: VADER, TextBlob, HuggingFace, SnowNLP, Cntext, and Malaya
 
-## Recent Refactoring Improvements
+---
 
-### 🚀 Pythonic Code Refactoring
+## API Usage & Examples
 
-The codebase has been comprehensively refactored to follow Python best practices and advanced concepts:
+### API Documentation
+- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
-#### **Constants Management**
-- **Centralized Constants**: All hardcoded values moved to `app/constants.py`
-- **Organized Configuration**: Logical grouping of constants by functionality
-- **Type Safety**: Strong typing with custom type aliases
-- **Enum Usage**: Proper enumeration for states, labels, and models
-
-```python
-# Before: Hardcoded values scattered throughout code
-sample_rate = 16000
-max_file_size = 50 * 1024 * 1024
-positive_threshold = 0.05
-
-# After: Centralized constants
-from app.constants import AudioConfig, SentimentConfig
-sample_rate = AudioConfig.TARGET_SAMPLE_RATE
-max_file_size = AudioConfig.MAX_FILE_SIZE
-positive_threshold = SentimentConfig.POSITIVE_THRESHOLD
-```
-
-#### **Advanced Python Concepts**
-
-**Lambda Functions & Functional Programming**
-```python
-# Lambda for sentiment mapping
-sentiment_mapper = lambda score: (
-    SentimentLabel.POSITIVE if score >= SentimentConfig.POSITIVE_THRESHOLD
-    else SentimentLabel.NEGATIVE if score <= SentimentConfig.NEGATIVE_THRESHOLD
-    else SentimentLabel.NEUTRAL
-)
-
-# Functional processing pipeline
-processing_results = [
-    (step_name, step_func(audio, sample_rate))
-    for step_name, step_func in self._pipeline_steps.items()
-    if steps.get(step_name, False)
-]
-```
-
-**List & Dict Comprehensions**
-```python
-# List comprehension for feature extraction
-confidence_scores = [
-    segment.get("avg_logprob", 0.0) 
-    for segment in segments 
-    if segment.get("avg_logprob") is not None
-]
-
-# Dict comprehension for sentiment distribution
-sentiment_distribution = {
-    label.value: sentiments.count(label.value)
-    for label in SentimentLabel
-}
-```
-
-**Data Classes & Type Hints**
-```python
-@dataclass
-class SentimentScore:
-    """Data class for sentiment scores."""
-    label: SentimentLabel
-    score: float
-    confidence: float
-    model: str
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "label": self.label.value,
-            "score": self.score,
-            "confidence": self.confidence,
-            "model": self.model
-        }
-```
-
-#### **Performance Optimizations**
-
-**Caching with LRU Cache**
-```python
-@lru_cache(maxsize=1000)
-def _cached_analyze(self, text: str, model_type: str) -> Optional[Dict]:
-    """Cached sentiment analysis for performance."""
-    return self._model_handlers[model_type](text)
-```
-
-**Vectorized Operations**
-```python
-# Vectorized audio processing
-audio = np.mean(audio, axis=0) if len(audio.shape) > 1 else audio
-
-# Vectorized confidence calculation
-weights = [seg.get("end", 0) - seg.get("start", 0) for seg in segments]
-normalized_weights = [w / total_weight for w in weights]
-confidence = sum(score * weight for score, weight in zip(confidence_scores, normalized_weights))
-```
-
-**Batch Processing**
-```python
-def batch_process(self, file_paths: list, processing_steps: Optional[dict] = None) -> list:
-    """Process multiple audio files in batch."""
-    return [
-        {
-            'file_path': file_path,
-            'result': self.process_audio(file_path, processing_steps)
-        }
-        for file_path in file_paths
-    ]
-```
-
-#### **Error Handling & Validation**
-
-**Comprehensive Validation**
-```python
-@classmethod
-def is_valid_text(cls, text: str) -> bool:
-    """Validate text input."""
-    return (isinstance(text, str) and 
-            cls.MIN_TEXT_LENGTH <= len(text.strip()) <= cls.MAX_TEXT_LENGTH)
-
-@classmethod
-def is_valid_audio_duration(cls, duration: float) -> bool:
-    """Validate audio duration."""
-    return cls.MIN_AUDIO_DURATION <= duration <= cls.MAX_AUDIO_DURATION
-```
-
-**Structured Error Messages**
-```python
-class ErrorMessages:
-    """Centralized error message constants."""
-    FILE_TOO_LARGE = "File size exceeds maximum allowed size of {}MB"
-    TRANSCRIPTION_FAILED = "Transcription failed: {}"
-    SENTIMENT_ANALYSIS_FAILED = "Sentiment analysis failed: {}"
-```
-
-#### **Configuration Management**
-
-**Pydantic Settings with Validation**
-```python
-class Settings(BaseSettings):
-    """Application settings with environment variable support."""
-    
-    @property
-    def is_development(self) -> bool:
-        """Check if running in development mode."""
-        return self.debug or os.getenv("ENVIRONMENT", "development") == "development"
-    
-    def validate_config(self) -> None:
-        """Validate configuration settings."""
-        if self.port <= 0 or self.port > 65535:
-            raise ValueError("Invalid port number")
-```
-
-#### **Modular Architecture**
-
-**Component Separation**
-- **Constants Module**: Centralized configuration management
-- **Audio Processor**: Advanced audio preprocessing with pipeline
-- **Sentiment Analyzer**: Multi-model sentiment analysis with caching
-- **Transcription Service**: Optimized speech-to-text with device handling
-- **API Layer**: RESTful endpoints with comprehensive error handling
-
-**Pipeline Architecture**
-```python
-# Configurable processing pipeline
-self._pipeline_steps = {
-    'normalize_sample_rate': self._normalize_sample_rate,
-    'denoise': self._denoise_audio,
-    'trim_silence': self._trim_silence,
-    'normalize_amplitude': self._normalize_amplitude
-}
-```
-
-#### **Code Quality Improvements**
-
-**Type Safety**
-- Comprehensive type hints throughout the codebase
-- Custom type aliases for better readability
-- Enum usage for state management
-- Dataclasses for structured data
-
-**Documentation**
-- Detailed docstrings with type information
-- Inline comments for complex logic
-- Comprehensive README with examples
-- API documentation with OpenAPI/Swagger
-
-**Testing**
-- Unit tests for all refactored components
-- Integration tests for end-to-end functionality
-- Performance benchmarks for optimizations
-- Error handling validation
-
-### **Benefits of Refactoring**
-
-1. **Maintainability**: Centralized constants and modular design
-2. **Performance**: Caching, vectorization, and batch processing
-3. **Readability**: Pythonic code with clear structure
-4. **Type Safety**: Comprehensive type hints and validation
-5. **Extensibility**: Easy to add new features and models
-6. **Error Handling**: Structured error management
-7. **Testing**: Improved testability with dependency injection
-
-### **Advanced Features Added**
-
-- **Smart Caching**: LRU cache for expensive operations
-- **Batch Processing**: Efficient handling of multiple files
-- **Device Optimization**: GPU/CPU-specific optimizations
-- **Memory Management**: Efficient data structures and cleanup
-- **Async Support**: Prepared for async/await patterns
-- **Monitoring**: Performance metrics and logging
-
-## System Architecture
-
-### High-Level Design
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Audio Input   │───▶│  Audio Processor │───▶│  Transcription  │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │                        │
-                                ▼                        ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Sentiment      │◀───│  Multi-Language │◀───│  Text Output    │
-│  Analysis       │    │  Detector       │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │
-                                ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Emotion        │    │  REST API       │    │  Dashboard      │
-│  Detection      │    │                 │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
-
-### Component Breakdown
-
-#### **Audio Processing Pipeline**
-- **Input Validation**: File format and size validation
-- **Preprocessing**: Noise reduction, normalization, silence trimming
-- **Feature Extraction**: MFCC, spectral, chroma, and harmonic features
-- **Optimization**: Vectorized operations and batch processing
-
-#### **Transcription Service**
-- **Whisper Integration**: OpenAI Whisper with device optimization
-- **Language Detection**: Enhanced detection with accent handling
-- **Caching**: LRU cache for transcription configurations
-- **Error Handling**: Comprehensive error management
-
-#### **Sentiment Analysis**
-- **Multi-Model**: VADER, TextBlob, HuggingFace, SnowNLP, Cntext, Malaya
-- **Language-Specific**: Tool selection based on detected language
-- **Caching**: Cached analysis results for performance
-- **Aggregation**: Weighted averaging of multiple model results
-
-#### **API Layer**
-- **FastAPI**: Modern async web framework
-- **Validation**: Pydantic models for request/response validation
-- **Error Handling**: Structured error responses
-- **Documentation**: Auto-generated OpenAPI documentation
-
-## Installation
-
-### Prerequisites
-
-- Python 3.10 (recommended for compatibility)
-- FFmpeg installed and configured
-- Sufficient disk space for models
-
-### Setup
-
-1. **Clone the repository**
-```bash
-git clone <repository-url>
-cd SentimentAnalysis_1
-```
-
-2. **Create virtual environment**
-```bash
-python3.10 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. **Install dependencies**
-```bash
-pip install -e .
-```
-
-4. **Download NLTK data**
-```bash
-python -c "import nltk; nltk.download('vader_lexicon')"
-```
-
-5. **Create necessary directories**
-```bash
-mkdir -p uploads processed
-```
-
-## Usage
-
-### Starting the Services
-
-1. **Start the API server**
-```bash
-python -m app.api
-```
-
-2. **Start the dashboard**
-```bash
-streamlit run app/dashboard.py
-```
-
-### API Endpoints
-
-#### **Analyze Audio File**
+### Analyze Audio File
 ```bash
 curl -X POST "http://localhost:8000/analyze" \
-  -H "Content-Type: multipart/form-data" \
+  -H "accept: application/json" \
   -F "file=@audio_file.wav" \
   -F "language=auto"
 ```
+- `language` is optional. Use `en`, `zh`, `ms`, or `auto` (default: auto-detect).
 
-#### **Analyze Text**
+### Analyze Text
 ```bash
 curl -X POST "http://localhost:8000/analyze/text" \
-  -H "Content-Type: application/json" \
-  -d '{"text": "I am very happy today!", "language": "en"}'
+  -H "accept: application/json" \
+  --data-urlencode "text=I am very happy today!" \
+  --data-urlencode "language=en"
 ```
+- `language` is optional. Use `en`, `zh`, or `ms` (default: en).
 
-#### **Get System Status**
+### Graceful Shutdown
 ```bash
-curl "http://localhost:8000/status"
+curl -X POST "http://localhost:8000/shutdown" \
+  -H "accept: application/json"
 ```
+- Use this endpoint for controlled server shutdown instead of SIGTERM/SIGINT
+- Performs cleanup operations (database connections, memory cleanup)
+- Returns immediately with shutdown status, then exits process
 
-### Dashboard Features
+### Example Sentiment Result
+```json
+{
+  "sentiment": {
+    "overall_sentiment": "neutral",
+    "score": 0.12,
+    "confidence": 0.8,
+    "details": {
+      "neg": 0.0,
+      "neu": 0.9,
+      "pos": 0.1,
+      "compound": 0.12,
+      "original_compound": 0.12,
+      "adjusted_compound": 0.12
+    }
+  }
+}
+```
+- `original_compound`: Raw VADER score
+- `adjusted_compound`: Score after context-aware adjustment (for customer service calls)
 
-- **File Upload**: Drag-and-drop audio file upload
-- **Real-time Analysis**: Live processing with progress indicators
-- **Multi-language Support**: Language selection and detection display
-- **Visualization**: Charts and graphs for sentiment analysis
-- **Export**: Download results in various formats
+---
 
-## Configuration
+## How Sentiment is Determined
+- **Thresholds**: See `app/constants.py` for `POSITIVE_THRESHOLD` and `NEGATIVE_THRESHOLD` (default: ±0.3)
+- **Context-Aware Logic**: For customer service calls (e.g., "customer care", "how is your experience"), positive scores are reduced before thresholding. This makes it harder to classify as "positive" unless the sentiment is very strong.
+- **Neutral**: If the adjusted score is between the thresholds, the result is "neutral".
 
-### Environment Variables
+---
 
-Create a `.env` file in the project root:
+## Environment Variables
 
+**Important:** Do NOT use inline comments in `.env` files. Each line must be `KEY=VALUE` only.
+
+Example:
 ```env
-# API Configuration
 HOST=0.0.0.0
 PORT=8000
 DEBUG=false
-
-# Database
 DATABASE_URL=sqlite:///./sentiment_analysis.db
-
-# Whisper Model
 WHISPER_MODEL=base
-
-# Sentiment Model
 SENTIMENT_MODEL=cardiffnlp/twitter-roberta-base-sentiment-latest
-
-# File Upload
 MAX_FILE_SIZE=52428800
 UPLOAD_DIR=uploads
 PROCESSED_DIR=processed
 ```
 
-### Constants Configuration
-
-All system constants are managed in `app/constants.py`:
-
-```python
-# Audio Processing
-AudioConfig.TARGET_SAMPLE_RATE = 16000
-AudioConfig.MAX_FILE_SIZE = 50 * 1024 * 1024
-
-# Sentiment Analysis
-SentimentConfig.POSITIVE_THRESHOLD = 0.05
-SentimentConfig.NEGATIVE_THRESHOLD = -0.05
-
-# Language Detection
-LanguageConfig.WHISPER_CONFIDENCE_THRESHOLD = 0.8
-```
-
-## Testing
-
-### Run All Tests
-```bash
-python -m pytest tests/ -v
-```
-
-### Run Specific Test Categories
-```bash
-# Audio processing tests
-python -m pytest tests/test_audio_processor.py -v
-
-# Sentiment analysis tests
-python -m pytest tests/test_sentiment_analyzer.py -v
-
-# API tests
-python -m pytest tests/test_api.py -v
-```
-
-### Performance Testing
-```bash
-# Benchmark audio processing
-python tests/benchmark_audio_processing.py
-
-# Benchmark sentiment analysis
-python tests/benchmark_sentiment_analysis.py
-```
-
-## Performance Optimizations
-
-### **Caching Strategy**
-- **LRU Cache**: For expensive operations (transcription, sentiment analysis)
-- **Model Caching**: Pre-loaded models for faster inference
-- **Configuration Caching**: Cached settings and parameters
-
-### **Vectorization**
-- **NumPy Operations**: Vectorized audio processing
-- **Batch Processing**: Efficient handling of multiple files
-- **Memory Optimization**: Efficient data structures
-
-### **Device Optimization**
-- **GPU Support**: CUDA acceleration for Whisper models
-- **CPU Optimization**: FP32 precision for CPU inference
-- **Memory Management**: Automatic cleanup and garbage collection
+---
 
 ## Troubleshooting
 
-### Common Issues
+### Address Already in Use
+If you see `ERROR: [Errno 48] Address already in use`, stop any running server on the same port or use a different port in your `.env` file.
 
-1. **FFmpeg Errors**
+### FFmpeg Errors
+See earlier troubleshooting section for FFmpeg issues.
+
+### Model Loading Issues
+See earlier troubleshooting section for model issues.
+
+---
+
+## Updating Sentiment Thresholds
+To change how strict the sentiment classification is, edit these lines in `app/constants.py`:
+```python
+class SentimentConfig:
+    POSITIVE_THRESHOLD = 0.3  # Increase for stricter positive
+    NEGATIVE_THRESHOLD = -0.3  # Decrease for stricter negative
+```
+Restart the API after making changes.
+
+---
+
+## Interpreting Sentiment Results
+- `overall_sentiment`: The final label (positive, negative, neutral)
+- `score`: The (possibly adjusted) sentiment score
+- `details`: Includes both the original and adjusted compound scores for transparency
+
+---
+
+## Database Schema
+
+The system uses a SQLite database (`sentiment_analysis.db`) to store all analysis results and metadata.
+
+### Tables
+
+#### **audio_analyses**
+Main table storing complete analysis results for each audio file:
+- `id`: Unique identifier
+- `filename`: Name of the audio file
+- `file_path`: Path to the file
+- `file_size`: Size in bytes
+- `duration`: Duration in seconds
+- `transcript`: Full transcription text
+- `transcription_confidence`: Confidence score from transcription
+- `sentiment_label`: Overall sentiment label (positive, negative, neutral)
+- `sentiment_score`: Overall sentiment score (float)
+- `sentiment_details`: JSON with detailed sentiment breakdown (VADER, TextBlob, etc.)
+- `processing_time`: How long the analysis took
+- `created_at`, `updated_at`: Timestamps
+
+#### **speaker_segments**
+Table storing segment-level analysis (time slices or speaker turns):
+- `id`: Unique identifier
+- `audio_analysis_id`: Foreign key to `audio_analyses`
+- `speaker_id`: (Optional) Speaker label
+- `start_time`, `end_time`: Segment timing
+- `transcript`: Text for this segment
+- `sentiment_label`: Sentiment for this segment
+- `sentiment_score`: Score for this segment
+- `sentiment_details`: JSON with detailed breakdown for this segment
+- `created_at`: Timestamp
+
+### Database Operations
+- **Automatic Storage**: Every analysis is automatically stored in the database
+- **Query Results**: Use `/analyses` endpoint to retrieve all analyses
+- **Individual Results**: Use `/analyses/{id}` to get specific analysis details
+- **Statistics**: Use `/statistics` endpoint for aggregated data
+
+### Database Location
+- **Default**: `./sentiment_analysis.db` (in project root)
+- **Configurable**: Set `DATABASE_URL` in `.env` file
+- **Backup**: Consider backing up this file for production use
+
+---
+
+## Examples
+
+Comprehensive API usage examples are available in the `examples/` folder:
+
+### 📁 Available Examples
+- **`api_usage_examples.py`** - Python script with complete API client
+- **`curl_examples.sh`** - Bash script with cURL commands
+- **`nodejs_examples.js`** - Node.js script with axios
+- **`README.md`** - Detailed documentation for all examples
+
+### 🚀 Quick Start with Examples
 ```bash
-# Reinstall FFmpeg
-brew reinstall ffmpeg
+# Start the API server
+python main.py --mode api
 
-# Fix dylib dependencies
-./scripts/fix_ffmpeg_dylibs.sh
+# Run Python examples
+python examples/api_usage_examples.py
+
+# Run cURL examples
+./examples/curl_examples.sh
+
+# Run Node.js examples
+node examples/nodejs_examples.js
 ```
 
-2. **Model Loading Issues**
-```bash
-# Clear model cache
-rm -rf ~/.cache/whisper
+### 📋 What Examples Cover
+- Health checks and system status
+- Text sentiment analysis (multiple languages)
+- Audio file analysis and processing
+- Database operations (list, get, delete)
+- Statistics and analytics
+- Graceful shutdown procedures
 
-# Reinstall dependencies
-pip install --force-reinstall torch torchaudio
-```
+See `examples/README.md` for detailed documentation and troubleshooting.
 
-3. **Memory Issues**
-```bash
-# Reduce batch size
-export BATCH_SIZE=16
+---
 
-# Use smaller model
-export WHISPER_MODEL=tiny
-```
-
-### Performance Tuning
-
-1. **For Large Files**
-   - Increase `MAX_FILE_SIZE` in constants
-   - Use batch processing for multiple files
-   - Enable GPU acceleration
-
-2. **For High Throughput**
-   - Use smaller Whisper models
-   - Enable caching for repeated analysis
-   - Implement async processing
-
-3. **For Memory Constraints**
-   - Reduce batch sizes
-   - Use CPU-only mode
-   - Implement streaming processing
-
-## Contributing
-
-### Development Setup
-
-1. **Fork the repository**
-2. **Create feature branch**
-```bash
-git checkout -b feature/your-feature-name
-```
-
-3. **Make changes following the refactored patterns**
-   - Use constants from `app/constants.py`
-   - Follow type hints and documentation standards
-   - Add comprehensive tests
-
-4. **Run tests and linting**
-```bash
-python -m pytest tests/ -v
-python -m flake8 app/
-python -m mypy app/
-```
-
-5. **Submit pull request**
-
-### Code Standards
-
-- **Type Hints**: All functions must have type hints
-- **Documentation**: Comprehensive docstrings
-- **Constants**: Use centralized constants
-- **Error Handling**: Structured error management
-- **Testing**: Unit tests for all new features
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- OpenAI Whisper for speech-to-text capabilities
-- HuggingFace for sentiment analysis models
-- VADER, TextBlob, SnowNLP, Cntext, and Malaya for multi-language sentiment analysis
-- FastAPI and Streamlit for the web framework and dashboard 
+## More
+- See the rest of this README for architecture, setup, and advanced usage.
+- For full API details, use the Swagger UI or ReDoc links above. 

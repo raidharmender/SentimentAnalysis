@@ -8,6 +8,7 @@ from app.transcription import TranscriptionService
 from app.sentiment_analyzer import SentimentAnalyzerMultiTool
 from app.models import AudioAnalysis, SpeakerSegment
 from app.config import settings
+from app.logging_config import get_sentiment_logger, get_audio_logger, get_database_logger
 
 
 class SentimentAnalysisService:
@@ -19,9 +20,16 @@ class SentimentAnalysisService:
         self.transcription_service = TranscriptionService()
         self.sentiment_analyzer = SentimentAnalyzerMultiTool()
         
+        # Initialize loggers
+        self.logger = get_sentiment_logger()
+        self.audio_logger = get_audio_logger()
+        self.db_logger = get_database_logger()
+        
         # Ensure directories exist
         os.makedirs(settings.upload_dir, exist_ok=True)
         os.makedirs(settings.processed_dir, exist_ok=True)
+        
+        self.logger.info("SentimentAnalysisService initialized successfully")
     
     def analyze_audio_file(self, file_path: str, db: Session, 
                           save_processed_audio: bool = True, language: str = None) -> Dict:
@@ -39,15 +47,19 @@ class SentimentAnalysisService:
         start_time = time.time()
         
         try:
-            print(f"Starting analysis for: {file_path}")
+            self.logger.info(f"Starting analysis for: {file_path}")
             
             # Step 1: Audio Preprocessing
-            print("Step 1: Audio Preprocessing")
+            self.logger.info("Step 1: Audio Preprocessing")
+            self.audio_logger.info(f"Processing audio file: {file_path}")
             audio_data, sample_rate = self.audio_processor.process_audio(
                 file_path,
-                denoise=True,
-                trim_silence=True,
-                normalize_amplitude=True
+                processing_steps={
+                    'normalize_sample_rate': True,
+                    'denoise': True,
+                    'trim_silence': True,
+                    'normalize_amplitude': True
+                }
             )
             
             # Save processed audio if requested
@@ -57,18 +69,20 @@ class SentimentAnalysisService:
                 name, ext = os.path.splitext(filename)
                 processed_filename = f"{name}_processed.wav"
                 processed_audio_path = os.path.join(settings.processed_dir, processed_filename)
+                self.audio_logger.info(f"Saving processed audio to: {processed_audio_path}")
                 self.audio_processor.save_processed_audio(audio_data, sample_rate, processed_audio_path)
             
             # Step 2: Transcription
-            print("Step 2: Speech-to-Text Transcription")
+            self.logger.info("Step 2: Speech-to-Text Transcription")
             transcription_result = self.transcription_service.transcribe_audio_data(
                 audio_data, sample_rate, language
             )
             
             # Step 3: Sentiment Analysis
-            print("Step 3: Sentiment Analysis")
+            self.logger.info("Step 3: Sentiment Analysis")
             # Use detected language for sentiment analysis
             lang_code = transcription_result.get("language", "en")
+            self.logger.info(f"Analyzing sentiment for language: {lang_code}")
             sentiment_result = self.sentiment_analyzer.analyze(
                 transcription_result["transcript"], lang_code
             )
@@ -76,17 +90,18 @@ class SentimentAnalysisService:
             # Step 4: Segment Analysis (if segments available)
             segment_results = []
             if transcription_result.get("segments"):
-                print("Step 4: Segment-level Analysis")
+                self.logger.info("Step 4: Segment-level Analysis")
+                self.logger.info(f"Analyzing {len(transcription_result['segments'])} segments")
                 segment_results = self.sentiment_analyzer.analyze_segments(
                     transcription_result["segments"]
                 )
             
             # Step 5: Generate Summary
-            print("Step 5: Generating Summary")
+            self.logger.info("Step 5: Generating Summary")
             summary = self.sentiment_analyzer.get_sentiment_summary(segment_results)
             
             # Step 6: Store Results
-            print("Step 6: Storing Results")
+            self.logger.info("Step 6: Storing Results")
             analysis_record = self._store_analysis_results(
                 db, file_path, processed_audio_path, transcription_result, 
                 sentiment_result, summary, time.time() - start_time
@@ -94,6 +109,7 @@ class SentimentAnalysisService:
             
             # Store segment results
             if segment_results:
+                self.logger.info(f"Storing {len(segment_results)} segment results")
                 self._store_segment_results(db, analysis_record.id, segment_results)
             
             # Prepare final response
@@ -118,11 +134,12 @@ class SentimentAnalysisService:
                 "processing_time": time.time() - start_time
             }
             
-            print(f"Analysis completed successfully in {response['processing_time']:.2f}s")
+            self.logger.info(f"Analysis completed successfully in {response['processing_time']:.2f}s")
+            self.logger.info(f"Analysis ID: {analysis_record.id}, Sentiment: {sentiment_result['sentiment']}, Score: {sentiment_result['score']:.3f}")
             return response
             
         except Exception as e:
-            print(f"Analysis failed: {str(e)}")
+            self.logger.error(f"Analysis failed for file {file_path}: {str(e)}", exc_info=True)
             raise
     
     def _store_analysis_results(self, db: Session, file_path: str, 
@@ -144,6 +161,8 @@ class SentimentAnalysisService:
         Returns:
             AudioAnalysis record
         """
+        self.db_logger.info(f"Storing analysis results for file: {os.path.basename(file_path)}")
+        
         # Create analysis record
         analysis_record = AudioAnalysis(
             filename=os.path.basename(file_path),
@@ -164,11 +183,16 @@ class SentimentAnalysisService:
             processing_time=processing_time
         )
         
-        db.add(analysis_record)
-        db.commit()
-        db.refresh(analysis_record)
-        
-        return analysis_record
+        try:
+            db.add(analysis_record)
+            db.commit()
+            db.refresh(analysis_record)
+            self.db_logger.info(f"Successfully stored analysis record with ID: {analysis_record.id}")
+            return analysis_record
+        except Exception as e:
+            self.db_logger.error(f"Failed to store analysis results: {str(e)}", exc_info=True)
+            db.rollback()
+            raise
     
     def _store_segment_results(self, db: Session, analysis_id: int, 
                               segment_results: List[Dict]) -> None:
@@ -180,19 +204,27 @@ class SentimentAnalysisService:
             analysis_id: ID of the main analysis record
             segment_results: List of segment analysis results
         """
-        for segment in segment_results:
-            segment_record = SpeakerSegment(
-                audio_analysis_id=analysis_id,
-                start_time=segment["start"],
-                end_time=segment["end"],
-                transcript=segment["text"],
-                sentiment_label=segment["sentiment"],
-                sentiment_score=segment["score"],
-                sentiment_details=segment["details"]
-            )
-            db.add(segment_record)
+        self.db_logger.info(f"Storing {len(segment_results)} segment results for analysis ID: {analysis_id}")
         
-        db.commit()
+        try:
+            for segment in segment_results:
+                segment_record = SpeakerSegment(
+                    audio_analysis_id=analysis_id,
+                    start_time=segment["start"],
+                    end_time=segment["end"],
+                    transcript=segment["text"],
+                    sentiment_label=segment["sentiment"],
+                    sentiment_score=segment["score"],
+                    sentiment_details=segment["details"]
+                )
+                db.add(segment_record)
+            
+            db.commit()
+            self.db_logger.info(f"Successfully stored {len(segment_results)} segment records")
+        except Exception as e:
+            self.db_logger.error(f"Failed to store segment results: {str(e)}", exc_info=True)
+            db.rollback()
+            raise
     
     def get_analysis_by_id(self, db: Session, analysis_id: int) -> Optional[Dict]:
         """
@@ -257,12 +289,12 @@ class SentimentAnalysisService:
         
         return [
             {
-                "id": analysis.id,
+                "analysis_id": analysis.id,
                 "filename": analysis.filename,
-                "sentiment_label": analysis.sentiment_label,
-                "sentiment_score": analysis.sentiment_score,
+                "sentiment": analysis.sentiment_label,
+                "duration": analysis.duration or 0,
                 "processing_time": analysis.processing_time,
-                "created_at": analysis.created_at
+                "created_at": analysis.created_at.isoformat() if analysis.created_at else None
             }
             for analysis in analyses
         ]
@@ -277,6 +309,7 @@ class SentimentAnalysisService:
         Returns:
             Statistics summary
         """
+        from sqlalchemy import func
         total_analyses = db.query(AudioAnalysis).count()
         
         if total_analyses == 0:
@@ -299,8 +332,8 @@ class SentimentAnalysisService:
             AudioAnalysis.sentiment_label == "neutral"
         ).count()
         
-        # Calculate average sentiment score
-        avg_score = db.query(AudioAnalysis.sentiment_score).scalar()
+        # Calculate average sentiment score using SQL AVG
+        avg_score = db.query(func.avg(AudioAnalysis.sentiment_score)).scalar() or 0.0
         
         return {
             "total_analyses": total_analyses,
@@ -309,7 +342,7 @@ class SentimentAnalysisService:
                 "negative": negative_count,
                 "neutral": neutral_count
             },
-            "average_sentiment_score": avg_score or 0.0
+            "average_sentiment_score": avg_score
         }
     
     def get_system_status(self) -> Dict:
