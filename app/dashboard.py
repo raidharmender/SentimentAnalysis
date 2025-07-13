@@ -10,6 +10,10 @@ import os
 import logging
 
 from app.logging_config import get_dashboard_logger
+from app.template_utils import (
+    load_css, format_sentiment_header, format_compact_sentiment_header,
+    format_metrics_grid, format_section_header, get_sentiment_config
+)
 
 # Configuration
 API_BASE_URL = "http://localhost:8000"
@@ -20,13 +24,26 @@ logger = get_dashboard_logger()
 
 def main():
     logger.info("Starting Streamlit dashboard")
+    
     st.set_page_config(
-        page_title="Sentiment Analysis Dashboard",
-        page_icon="🎤",
+        page_title="Artificial Intelligence Telecall Analyst",
         layout="wide"
     )
     
-    st.title("🎤 Audio Sentiment Analysis Dashboard")
+    # Load and inject CSS
+    css = load_css()
+    st.markdown(f"""
+    <style>
+    {css}
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Force left alignment container
+    st.markdown("""
+    <div style="text-align: left; width: 100%; max-width: 100%;">
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<h1 class='dashboard-header'>Artificial Intelligence Telecall Analyst</h1>", unsafe_allow_html=True)
     st.markdown("---")
     
     # Sidebar
@@ -46,9 +63,12 @@ def main():
         statistics_page()
     elif page == "System Status":
         system_status_page()
+    
+    # Close the left alignment container
+    st.markdown("</div>", unsafe_allow_html=True)
 
 def upload_and_analyze_page():
-    st.header("Upload & Analyze Audio")
+    st.markdown("<h1 class='page-header'>Upload & Analyze Audio</h1>", unsafe_allow_html=True)
     
     # File upload
     uploaded_file = st.file_uploader(
@@ -62,7 +82,7 @@ def upload_and_analyze_page():
         
         # Analysis options
         st.subheader("Analysis Options")
-        
+        st.markdown("")       
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -137,201 +157,160 @@ def analyze_audio(uploaded_file, save_processed, language_code="auto"):
         st.error(f"Error during analysis: {str(e)}")
 
 def display_analysis_results(result):
-    """Display analysis results"""
-    # Overall Sentiment Header with Smiley and Color Coding
-    overall_sentiment = result['sentiment']['overall_sentiment'].lower()
-    sentiment_score = result['sentiment']['score']
+    """Display analysis results using templates"""
+    # Handle different result structures (from API vs from database)
+    if 'sentiment' in result and isinstance(result['sentiment'], dict):
+        # From API analysis
+        overall_sentiment = result['sentiment']['overall_sentiment'].lower()
+        sentiment_score = result['sentiment']['score']
+        transcription_text = result['transcription']['text']
+        transcription_language = result['transcription']['language']
+        transcription_confidence = result['transcription']['confidence']
+    else:
+        # From database (detailed view)
+        overall_sentiment = result['sentiment_label'].lower()
+        sentiment_score = result['sentiment_score']
+        transcription_text = result['transcript']
+        transcription_language = 'en'  # Default, not stored in database
+        transcription_confidence = result['transcription_confidence']
     
-    # Define sentiment display properties
-    sentiment_config = {
-        "positive": {
-            "emoji": "😊",
-            "color": "#28a745",  # Green
-            "bg_color": "#d4edda",
-            "border_color": "#c3e6cb"
-        },
-        "negative": {
-            "emoji": "😞",
-            "color": "#dc3545",  # Red
-            "bg_color": "#f8d7da",
-            "border_color": "#f5c6cb"
-        },
-        "neutral": {
-            "emoji": "😐",
-            "color": "#6c757d",  # Grey
-            "bg_color": "#e2e3e5",
-            "border_color": "#d6d8db"
-        }
-    }
+    # Display each section using templates
+    display_sentiment_header(overall_sentiment, sentiment_score)
+    display_analysis_metrics(result, transcription_language, transcription_confidence, overall_sentiment, sentiment_score)
+    display_segment_analysis(result)
+
+def display_sentiment_header(overall_sentiment, sentiment_score):
+    """Display sentiment header using template"""
+    sentiment_html = format_sentiment_header(overall_sentiment, sentiment_score)
+    st.markdown(sentiment_html, unsafe_allow_html=True)
+
+def display_analysis_metrics(result, transcription_language, transcription_confidence, overall_sentiment, sentiment_score):
+    """Display analysis metrics using template"""
+    # Language info for display
+    language_name = {
+        "en": "English",
+        "cy": "Welsh", 
+        "ga": "Irish",
+        "gd": "Scottish Gaelic",
+        "fr": "French",
+        "de": "German",
+        "es": "Spanish",
+        "it": "Italian",
+        "pt": "Portuguese",
+        "nl": "Dutch",
+        "ru": "Russian",
+        "zh": "Chinese",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "ms": "Malay"
+    }.get(transcription_language, transcription_language)
     
-    config = sentiment_config.get(overall_sentiment, sentiment_config["neutral"])
+    # Display metrics header
+    metrics_header = format_section_header("📊 Analysis Metrics")
+    st.markdown(metrics_header, unsafe_allow_html=True)
     
-    # Create styled header with sentiment
-    sentiment_header_html = f"""
-    <div style="
-        background-color: {config['bg_color']};
-        border: 2px solid {config['border_color']};
-        border-radius: 10px;
-        padding: 20px;
-        margin: 20px 0;
-        text-align: center;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    ">
-        <h1 style="
-            color: {config['color']};
-            margin: 0;
-            font-size: 2.5em;
-            font-weight: bold;
-        ">
-            {config['emoji']} Overall Sentiment: {overall_sentiment.upper()}
-        </h1>
-        <p style="
-            color: {config['color']};
-            font-size: 1.2em;
-            margin: 10px 0 0 0;
-            font-weight: 500;
-        ">
-            Score: {sentiment_score:.3f}
-        </p>
-    </div>
-    """
-    
-    st.markdown(sentiment_header_html, unsafe_allow_html=True)
-    
-    # Basic info
+    # Display metrics using Streamlit columns instead of HTML grid
     col1, col2, col3, col4 = st.columns(4)
+    
     with col1:
-        st.metric("Duration", f"{result['duration']:.2f}s")
+        st.markdown(f"""
+        <div class="metric-card">
+            <h3 class="metric-title">⏱️ Duration</h3>
+            <p class="metric-value">{result['duration']:.2f}s</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col2:
-        st.metric("Processing Time", f"{result['processing_time']:.2f}s")
+        st.markdown(f"""
+        <div class="metric-card">
+            <h3 class="metric-title">⚡ Processing Time</h3>
+            <p class="metric-value">{result['processing_time']:.2f}s</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col3:
-        # Language info
-        language_name = {
-            "en": "English",
-            "cy": "Welsh", 
-            "ga": "Irish",
-            "gd": "Scottish Gaelic",
-            "fr": "French",
-            "de": "German",
-            "es": "Spanish",
-            "it": "Italian",
-            "pt": "Portuguese",
-            "nl": "Dutch",
-            "ru": "Russian",
-            "zh": "Chinese",
-            "ja": "Japanese",
-            "ko": "Korean",
-            "ms": "Malay"
-        }.get(result['transcription']['language'], result['transcription']['language'])
-        
-        st.metric(
-            "Detected Language",
-            language_name,
-            delta=f"Confidence: {result['transcription']['confidence']:.1%}"
-        )
+        st.markdown(f"""
+        <div class="metric-card">
+            <h3 class="metric-title">🌐 Detected Language</h3>
+            <p class="metric-value">{language_name}</p>
+            <p class="metric-subtitle">Confidence: {transcription_confidence:.1%}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col4:
-        sentiment_color = {
-            "positive": "green",
-            "negative": "red",
-            "neutral": "gray"
-        }.get(result['sentiment']['overall_sentiment'], "gray")
-        st.metric(
-            "Overall Sentiment",
-            result['sentiment']['overall_sentiment'].title(),
-            delta=f"{result['sentiment']['score']:.3f}"
-        )
-    
-    # Transcription
-    st.subheader("📝 Transcription")
-    st.text_area(
-        "Transcribed Text",
-        result['transcription']['text'],
-        height=150,
-        disabled=True
-    )
-    
-    # Sentiment details
-    st.subheader("😊 Sentiment Analysis")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        # Sentiment score gauge
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number+delta",
-            value=result['sentiment']['score'],
-            domain={'x': [0, 1], 'y': [0, 1]},
-            title={'text': "Sentiment Score"},
-            delta={'reference': 0},
-            gauge={
-                'axis': {'range': [-1, 1]},
-                'bar': {'color': "darkblue"},
-                'steps': [
-                    {'range': [-1, -0.1], 'color': "lightcoral"},
-                    {'range': [-0.1, 0.1], 'color': "lightgray"},
-                    {'range': [0.1, 1], 'color': "lightgreen"}
-                ],
-                'threshold': {
-                    'line': {'color': "red", 'width': 4},
-                    'thickness': 0.75,
-                    'value': 0
-                }
-            }
-        ))
-        fig.update_layout(height=300)
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        # Confidence and details
-        st.metric("Confidence", f"{result['sentiment']['confidence']:.2%}")
-        
-        # Show tool used
-        tool = result['sentiment']['details'].get('tool') if isinstance(result['sentiment']['details'], dict) else None
-        if tool:
-            st.write(f"**Sentiment Tool Used:** `{tool}`")
-        # Show detailed output for Mandarin, Malay, English
-        details = result['sentiment']['details']
-        if details:
-            if tool == 'cnsenti+cntext':
-                st.write("**CNSenti Sentiment:**", details.get('cnsenti_sentiment'))
-                st.write("**CNSenti Emotion:**", details.get('cnsenti_emotion'))
-                st.write("**CnText:**", details.get('cntext'))
-            elif tool == 'malaya':
-                st.write("**Malaya Sentiment:**", details.get('sentiment'))
-            elif tool == 'VADER':
-                st.write("**VADER Scores:**", details.get('sentiment'))
-            else:
-                # Fallback: show all details
-                st.write("**Model Details:**")
-                for k, v in details.items():
-                    st.write(f"- {k}: {v}")
-    
-    # Segment analysis
+        sentiment_config = get_sentiment_config(overall_sentiment)
+        st.markdown(f"""
+        <div class="metric-card">
+            <h3 class="metric-title">💭 Overall Sentiment</h3>
+            <p class="metric-value {sentiment_config['class']}">{overall_sentiment.title()}</p>
+            <p class="metric-subtitle">Score: {sentiment_score:.3f}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+def display_segment_analysis(result):
+    """Display segment analysis"""
     if result.get('segments'):
-        st.subheader("📊 Segment Analysis")
+        # Segment analysis header
+        segment_header = format_section_header("📊 Segment Analysis", large=True)
+        st.markdown(segment_header, unsafe_allow_html=True)
         
-        # Create segment dataframe
-        segments_df = pd.DataFrame(result['segments'])
-        segments_df['duration'] = segments_df['end'] - segments_df['start']
-        
-        # Segment sentiment over time
-        fig = px.line(
-            segments_df,
-            x='start',
-            y='score',
-            title="Sentiment Score Over Time",
-            labels={'start': 'Time (seconds)', 'score': 'Sentiment Score'}
-        )
-        fig.add_hline(y=0, line_dash="dash", line_color="gray")
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Segment table
-        st.write("**Segment Details:**")
-        display_df = segments_df[['start', 'end', 'text', 'sentiment', 'score']].copy()
-        display_df['text'] = display_df['text'].str[:50] + "..."
-        st.dataframe(display_df, use_container_width=True)
+        # Create segment dataframe - handle different segment structures
+        segments = result['segments']
+        if segments and len(segments) > 0:
+            # Check if segments have 'start'/'end' (API format) or 'start_time'/'end_time' (DB format)
+            if 'start' in segments[0]:
+                # API format
+                segments_df = pd.DataFrame(segments)
+                segments_df['duration'] = segments_df['end'] - segments_df['start']
+                time_col = 'start'
+                text_col = 'text'
+                sentiment_col = 'sentiment'
+                score_col = 'score'
+            else:
+                # Database format
+                segments_df = pd.DataFrame(segments)
+                segments_df['duration'] = segments_df['end_time'] - segments_df['start_time']
+                segments_df['start'] = segments_df['start_time']
+                segments_df['end'] = segments_df['end_time']
+                segments_df['text'] = segments_df['transcript']
+                segments_df['sentiment'] = segments_df['sentiment_label']
+                segments_df['score'] = segments_df['sentiment_score']
+                time_col = 'start'
+                text_col = 'text'
+                sentiment_col = 'sentiment'
+                score_col = 'score'
+            
+            # Segment sentiment over time
+            fig = px.line(
+                segments_df,
+                x=time_col,
+                y=score_col,
+                title="Sentiment Score Over Time",
+                labels={'start': 'Time (seconds)', 'score': 'Sentiment Score'}
+            )
+            fig.add_hline(y=0, line_dash="dash", line_color="gray")
+            fig.update_layout(
+                height=500,
+                title_font_size=24,
+                xaxis_title_font_size=18,
+                yaxis_title_font_size=18,
+                font=dict(size=16)
+            )
+            
+            # Display the plot
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Segment table header
+            segment_details_header = format_section_header("📋 Segment Details", large=True)
+            st.markdown(segment_details_header, unsafe_allow_html=True)
+            
+            # Display segment table
+            display_df = segments_df[['start', 'end', text_col, sentiment_col, score_col]].copy()
+            display_df['text'] = display_df[text_col].str[:150] + "..."  # Show more text
+            st.dataframe(display_df, use_container_width=True, height=500)
 
 def view_results_page():
-    st.header("View Analysis Results")
+    st.markdown("<h1 class='page-header'>View Analysis Results</h1>", unsafe_allow_html=True)
     
     try:
         # Get analyses
@@ -353,7 +332,7 @@ def view_results_page():
             with col1:
                 sentiment_filter = st.selectbox(
                     "Filter by sentiment",
-                    ["All"] + list(df['sentiment_label'].unique())
+                    ["All"] + list(df['sentiment'].unique())
                 )
             
             with col2:
@@ -364,7 +343,7 @@ def view_results_page():
             
             # Apply filters
             if sentiment_filter != "All":
-                df = df[df['sentiment_label'] == sentiment_filter]
+                df = df[df['sentiment'] == sentiment_filter]
             
             df = df[df['created_at'].dt.date == date_filter]
             
@@ -372,68 +351,26 @@ def view_results_page():
             st.write(f"Showing {len(df)} analyses")
             
             for _, analysis in df.iterrows():
-                # Create sentiment header for each analysis
-                sentiment_label = analysis['sentiment_label'].lower()
-                sentiment_score = analysis['sentiment_score']
+                # Create compact sentiment header for each analysis
+                sentiment_label = analysis['sentiment'].lower()
+                sentiment_score = 0.0  # Will be updated when viewing details
                 
-                # Define sentiment display properties
-                sentiment_config = {
-                    "positive": {
-                        "emoji": "😊",
-                        "color": "#28a745",  # Green
-                        "bg_color": "#d4edda",
-                        "border_color": "#c3e6cb"
-                    },
-                    "negative": {
-                        "emoji": "😞",
-                        "color": "#dc3545",  # Red
-                        "bg_color": "#f8d7da",
-                        "border_color": "#f5c6cb"
-                    },
-                    "neutral": {
-                        "emoji": "😐",
-                        "color": "#6c757d",  # Grey
-                        "bg_color": "#e2e3e5",
-                        "border_color": "#d6d8db"
-                    }
-                }
+                # Create compact sentiment header using template
+                compact_header_html = format_compact_sentiment_header(sentiment_label, sentiment_score)
                 
-                config = sentiment_config.get(sentiment_label, sentiment_config["neutral"])
-                
-                # Create compact sentiment header
-                compact_header_html = f"""
-                <div style="
-                    background-color: {config['bg_color']};
-                    border: 1px solid {config['border_color']};
-                    border-radius: 8px;
-                    padding: 10px;
-                    margin: 10px 0;
-                    text-align: center;
-                ">
-                    <h3 style="
-                        color: {config['color']};
-                        margin: 0;
-                        font-size: 1.2em;
-                        font-weight: bold;
-                    ">
-                        {config['emoji']} {sentiment_label.upper()} (Score: {sentiment_score:.3f})
-                    </h3>
-                </div>
-                """
-                
-                with st.expander(f"{analysis['filename']} - {analysis['sentiment_label'].title()}"):
+                with st.expander(f"{analysis['filename']} - {analysis['sentiment'].title()}"):
                     st.markdown(compact_header_html, unsafe_allow_html=True)
                     
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.write(f"**Sentiment:** {analysis['sentiment_label'].title()}")
+                        st.write(f"**Sentiment:** {analysis['sentiment'].title()}")
                     with col2:
-                        st.write(f"**Score:** {analysis['sentiment_score']:.3f}")
+                        st.write(f"**Duration:** {analysis['duration']:.2f}s")
                     with col3:
                         st.write(f"**Processing Time:** {analysis['processing_time']:.2f}s")
                     
-                    if st.button(f"View Details", key=analysis['id']):
-                        view_analysis_details(analysis['id'])
+                    if st.button(f"View Details", key=analysis['analysis_id']):
+                        view_analysis_details(analysis['analysis_id'])
         else:
             st.error("Failed to fetch analyses")
             
@@ -456,7 +393,7 @@ def view_analysis_details(analysis_id):
         st.error(f"Error loading analysis details: {str(e)}")
 
 def statistics_page():
-    st.header("📈 Sentiment Statistics")
+    st.markdown("<h1 class='page-header'>📈 Call Analysis Statistics</h1>", unsafe_allow_html=True)
     
     try:
         response = requests.get(f"{API_BASE_URL}/statistics")
@@ -500,7 +437,7 @@ def statistics_page():
         st.error(f"Error loading statistics: {str(e)}")
 
 def system_status_page():
-    st.header("🔧 System Status")
+    st.markdown("<h1 class='page-header'>🔧 System Status</h1>", unsafe_allow_html=True)
     
     try:
         response = requests.get(f"{API_BASE_URL}/status")
@@ -519,18 +456,20 @@ def system_status_page():
             st.subheader("Transcription Service")
             trans_status = status['transcription']
             st.write(f"**Model:** {trans_status['model_name']}")
-            st.write(f"**Status:** {trans_status['status']}")
-            if trans_status['status'] == 'loaded':
-                st.write(f"**Device:** {trans_status['device']}")
+            st.write(f"**Status:** {'Loaded' if trans_status['model_loaded'] else 'Not Loaded'}")
+            st.write(f"**Device:** {trans_status['device']}")
+            st.write(f"**CUDA Available:** {trans_status['cuda_available']}")
+            st.write(f"**Supported Languages:** {trans_status['supported_languages']}")
             
             # Sentiment analysis status
             st.subheader("Sentiment Analysis")
             sent_status = status['sentiment_analysis']
-            st.write(f"**Hugging Face Model:** {sent_status['huggingface_model']}")
-            st.write(f"**Hugging Face Loaded:** {sent_status['huggingface_loaded']}")
-            st.write(f"**VADER Available:** {sent_status['vader_available']}")
-            st.write(f"**TextBlob Available:** {sent_status['textblob_available']}")
-            st.write(f"**Device:** {sent_status['device']}")
+            st.write(f"**Multi-Tool Analyzer:** {sent_status.get('multi_tool_analyzer', False)}")
+            st.write(f"**VADER Available:** {sent_status.get('vader_available', False)}")
+            st.write(f"**SnowNLP Available:** {sent_status.get('snownlp_available', False)}")
+            st.write(f"**CNText Available:** {sent_status.get('cntext_available', False)}")
+            st.write(f"**Malaya Available:** {sent_status.get('malaya_available', False)}")
+            st.write(f"**Supported Languages:** {', '.join(sent_status.get('supported_languages', []))}")
             
             # Storage status
             st.subheader("Storage")
