@@ -20,8 +20,8 @@ class SentimentAnalysisService:
         self.sentiment_analyzer = SentimentAnalyzerMultiTool()
         
         # Ensure directories exist
-        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-        os.makedirs(settings.PROCESSED_DIR, exist_ok=True)
+        os.makedirs(settings.upload_dir, exist_ok=True)
+        os.makedirs(settings.processed_dir, exist_ok=True)
     
     def analyze_audio_file(self, file_path: str, db: Session, 
                           save_processed_audio: bool = True, language: str = None) -> Dict:
@@ -56,7 +56,7 @@ class SentimentAnalysisService:
                 filename = os.path.basename(file_path)
                 name, ext = os.path.splitext(filename)
                 processed_filename = f"{name}_processed.wav"
-                processed_audio_path = os.path.join(settings.PROCESSED_DIR, processed_filename)
+                processed_audio_path = os.path.join(settings.processed_dir, processed_filename)
                 self.audio_processor.save_processed_audio(audio_data, sample_rate, processed_audio_path)
             
             # Step 2: Transcription
@@ -327,7 +327,7 @@ class SentimentAnalysisService:
             "transcription": self.transcription_service.get_model_info(),
             "sentiment_analysis": self.sentiment_analyzer.get_model_info(),
             "storage": {
-                "upload_dir": settings.UPLOAD_DIR,
-                "processed_dir": settings.PROCESSED_DIR
+                "upload_dir": settings.upload_dir,
+                "processed_dir": settings.processed_dir
             }
         } 

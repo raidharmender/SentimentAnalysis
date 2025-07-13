@@ -6,8 +6,8 @@ from app.models import Base
 
 # Create database engine
 engine = create_engine(
-    settings.DATABASE_URL,
-    connect_args={"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+    settings.database_url,
+    connect_args={"check_same_thread": False} if "sqlite" in settings.database_url else {}
 )
 
 # Create session factory

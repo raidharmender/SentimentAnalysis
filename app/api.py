@@ -13,7 +13,7 @@ from app.config import settings
 
 # Create FastAPI app with enhanced OpenAPI documentation
 app = FastAPI(
-    title=settings.PROJECT_NAME,
+    title=settings.project_name,
     description="""
 # 🎤 Sentiment Analysis System API
 
@@ -234,7 +234,7 @@ async def analyze_audio(
     
     try:
         # Save uploaded file
-        upload_path = os.path.join(settings.UPLOAD_DIR, file.filename)
+        upload_path = os.path.join(settings.upload_dir, file.filename)
         with open(upload_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
