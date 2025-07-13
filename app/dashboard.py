@@ -138,7 +138,65 @@ def analyze_audio(uploaded_file, save_processed, language_code="auto"):
 
 def display_analysis_results(result):
     """Display analysis results"""
-    st.success("Analysis completed successfully!")
+    # Overall Sentiment Header with Smiley and Color Coding
+    overall_sentiment = result['sentiment']['overall_sentiment'].lower()
+    sentiment_score = result['sentiment']['score']
+    
+    # Define sentiment display properties
+    sentiment_config = {
+        "positive": {
+            "emoji": "😊",
+            "color": "#28a745",  # Green
+            "bg_color": "#d4edda",
+            "border_color": "#c3e6cb"
+        },
+        "negative": {
+            "emoji": "😞",
+            "color": "#dc3545",  # Red
+            "bg_color": "#f8d7da",
+            "border_color": "#f5c6cb"
+        },
+        "neutral": {
+            "emoji": "😐",
+            "color": "#6c757d",  # Grey
+            "bg_color": "#e2e3e5",
+            "border_color": "#d6d8db"
+        }
+    }
+    
+    config = sentiment_config.get(overall_sentiment, sentiment_config["neutral"])
+    
+    # Create styled header with sentiment
+    sentiment_header_html = f"""
+    <div style="
+        background-color: {config['bg_color']};
+        border: 2px solid {config['border_color']};
+        border-radius: 10px;
+        padding: 20px;
+        margin: 20px 0;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    ">
+        <h1 style="
+            color: {config['color']};
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: bold;
+        ">
+            {config['emoji']} Overall Sentiment: {overall_sentiment.upper()}
+        </h1>
+        <p style="
+            color: {config['color']};
+            font-size: 1.2em;
+            margin: 10px 0 0 0;
+            font-weight: 500;
+        ">
+            Score: {sentiment_score:.3f}
+        </p>
+    </div>
+    """
+    
+    st.markdown(sentiment_header_html, unsafe_allow_html=True)
     
     # Basic info
     col1, col2, col3, col4 = st.columns(4)
@@ -314,7 +372,58 @@ def view_results_page():
             st.write(f"Showing {len(df)} analyses")
             
             for _, analysis in df.iterrows():
+                # Create sentiment header for each analysis
+                sentiment_label = analysis['sentiment_label'].lower()
+                sentiment_score = analysis['sentiment_score']
+                
+                # Define sentiment display properties
+                sentiment_config = {
+                    "positive": {
+                        "emoji": "😊",
+                        "color": "#28a745",  # Green
+                        "bg_color": "#d4edda",
+                        "border_color": "#c3e6cb"
+                    },
+                    "negative": {
+                        "emoji": "😞",
+                        "color": "#dc3545",  # Red
+                        "bg_color": "#f8d7da",
+                        "border_color": "#f5c6cb"
+                    },
+                    "neutral": {
+                        "emoji": "😐",
+                        "color": "#6c757d",  # Grey
+                        "bg_color": "#e2e3e5",
+                        "border_color": "#d6d8db"
+                    }
+                }
+                
+                config = sentiment_config.get(sentiment_label, sentiment_config["neutral"])
+                
+                # Create compact sentiment header
+                compact_header_html = f"""
+                <div style="
+                    background-color: {config['bg_color']};
+                    border: 1px solid {config['border_color']};
+                    border-radius: 8px;
+                    padding: 10px;
+                    margin: 10px 0;
+                    text-align: center;
+                ">
+                    <h3 style="
+                        color: {config['color']};
+                        margin: 0;
+                        font-size: 1.2em;
+                        font-weight: bold;
+                    ">
+                        {config['emoji']} {sentiment_label.upper()} (Score: {sentiment_score:.3f})
+                    </h3>
+                </div>
+                """
+                
                 with st.expander(f"{analysis['filename']} - {analysis['sentiment_label'].title()}"):
+                    st.markdown(compact_header_html, unsafe_allow_html=True)
+                    
                     col1, col2, col3 = st.columns(3)
                     with col1:
                         st.write(f"**Sentiment:** {analysis['sentiment_label'].title()}")
@@ -337,6 +446,9 @@ def view_analysis_details(analysis_id):
         response = requests.get(f"{API_BASE_URL}/analyses/{analysis_id}")
         if response.status_code == 200:
             result = response.json()
+            # Add a separator and title for the detailed view
+            st.markdown("---")
+            st.subheader("📊 Detailed Analysis Results")
             display_analysis_results(result)
         else:
             st.error("Failed to fetch analysis details")

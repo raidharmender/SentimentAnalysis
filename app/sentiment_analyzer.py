@@ -424,7 +424,7 @@ class SentimentAnalyzerMultiTool:
         }
     
     def _adjust_for_customer_service_context(self, text: str, compound: float) -> float:
-        """Adjust sentiment score based on customer service context."""
+        """Adjust sentiment score based on customer service context and negative feedback."""
         text_lower = text.lower()
         
         # Customer service context indicators
@@ -432,25 +432,36 @@ class SentimentAnalyzerMultiTool:
             "customer care", "customer service", "may i speak with", "calling to check",
             "follow-up", "how is your experience", "thank you for your feedback"
         ]
+        # Strong negative feedback indicators
+        negative_feedback = [
+            "not satisfied", "wasn't satisfied", "unhappy", "disappointing", "disappointed",
+            "bad experience", "not happy", "not good", "damaged", "broken", "poor service",
+            "problem", "issue", "complaint", "opened", "wrong item", "missing", "late", "delay"
+        ]
         
         # Check if this is a customer service call
         is_customer_service = any(indicator in text_lower for indicator in cs_indicators)
+        has_negative_feedback = any(neg in text_lower for neg in negative_feedback)
         
+        adjusted = compound
         if is_customer_service:
             # For customer service calls, be more conservative with positive sentiment
-            # Reduce the compound score slightly to avoid over-classification
             if compound > 0.5:
-                # High positive scores get reduced more
                 adjusted = compound * 0.7
             elif compound > 0.2:
-                # Moderate positive scores get reduced slightly
                 adjusted = compound * 0.85
-            else:
-                # Low scores remain mostly unchanged
-                adjusted = compound
+            # If strong negative feedback is present, force negative or reduce score
+            if has_negative_feedback:
+                if compound > 0:
+                    # Flip to negative or strongly reduce
+                    adjusted = min(-0.5, compound - 0.7)
+                else:
+                    # Already negative, make it stronger
+                    adjusted = compound * 1.2 if compound < -0.2 else compound - 0.2
         else:
-            adjusted = compound
-        
+            # Even if not customer service, negative feedback should be reflected
+            if has_negative_feedback and compound > 0:
+                adjusted = min(-0.4, compound - 0.6)
         return adjusted
     
     def _analyze_mandarin(self, text: str) -> SentimentResult:

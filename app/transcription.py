@@ -191,6 +191,10 @@ class TranscriptionService:
         """Handle transcription with device-specific optimizations."""
         config = self._get_cached_transcription_config(language or "auto", WhisperConfig.TASK_TRANSCRIBE)
         
+        # Convert Path to string if needed
+        if isinstance(audio_input, Path):
+            audio_input = str(audio_input)
+        
         if self.device == "cpu":
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")
