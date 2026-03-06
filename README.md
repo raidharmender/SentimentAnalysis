@@ -2,17 +2,6 @@
 
 A comprehensive audio sentiment analysis system that processes audio files, performs speech-to-text transcription, and analyzes sentiment using multiple languages and tools.
 
----
-
-## 🚀 What's New
-
-- **Stricter Sentiment Thresholds**: The system now uses more conservative thresholds for positive/negative sentiment. See `app/constants.py` for `POSITIVE_THRESHOLD` and `NEGATIVE_THRESHOLD` (default: ±0.3).
-- **Context-Aware Sentiment**: For customer service calls (detected by keywords), positive scores are reduced to avoid over-classification. See `app/sentiment_analyzer.py` for details.
-- **Language Support in API**: Both `/analyze` and `/analyze/text` endpoints accept an optional `language` parameter (`en`, `zh`, `ms`, `auto`).
-- **Swagger/OpenAPI Documentation**: Interactive API docs at [http://localhost:8000/docs](http://localhost:8000/docs) and [http://localhost:8000/redoc](http://localhost:8000/redoc).
-- **.env File Format**: Environment variable files must NOT have inline comments. Each line should be `KEY=VALUE` only.
-
----
 
 ## Features
 
@@ -119,7 +108,7 @@ See earlier troubleshooting section for FFmpeg issues.
 ### Model Loading Issues
 See earlier troubleshooting section for model issues.
 
----
+
 
 ## Updating Sentiment Thresholds
 To change how strict the sentiment classification is, edit these lines in `app/constants.py`:
@@ -130,14 +119,12 @@ class SentimentConfig:
 ```
 Restart the API after making changes.
 
----
 
 ## Interpreting Sentiment Results
 - `overall_sentiment`: The final label (positive, negative, neutral)
 - `score`: The (possibly adjusted) sentiment score
 - `details`: Includes both the original and adjusted compound scores for transparency
 
----
 
 ## Database Schema
 
@@ -183,19 +170,9 @@ Table storing segment-level analysis (time slices or speaker turns):
 - **Configurable**: Set `DATABASE_URL` in `.env` file
 - **Backup**: Consider backing up this file for production use
 
----
 
-## Examples
 
-Comprehensive API usage examples are available in the `examples/` folder:
-
-### 📁 Available Examples
-- **`api_usage_examples.py`** - Python script with complete API client
-- **`curl_examples.sh`** - Bash script with cURL commands
-- **`nodejs_examples.js`** - Node.js script with axios
-- **`README.md`** - Detailed documentation for all examples
-
-### 🚀 Quick Start with Examples
+##  Examples
 ```bash
 # Start the API server
 python main.py --mode api
@@ -209,19 +186,3 @@ python examples/api_usage_examples.py
 # Run Node.js examples
 node examples/nodejs_examples.js
 ```
-
-### 📋 What Examples Cover
-- Health checks and system status
-- Text sentiment analysis (multiple languages)
-- Audio file analysis and processing
-- Database operations (list, get, delete)
-- Statistics and analytics
-- Graceful shutdown procedures
-
-See `examples/README.md` for detailed documentation and troubleshooting.
-
----
-
-## More
-- See the rest of this README for architecture, setup, and advanced usage.
-- For full API details, use the Swagger UI or ReDoc links above. 
